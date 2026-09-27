@@ -1,49 +1,60 @@
 import { useRef, useState } from 'react'
 import { SEARCH_MAX_RESULTS } from '../api/github'
-import { useDebouncedValue } from '../hooks/useDebouncedValue'
+import { useDebouncedCallback } from '../hooks/useDebouncedCallback'
 import { useGitHubSearch } from '../hooks/useGitHubSearch'
+import { useSearchUrlState } from '../hooks/useSearchUrlState'
 import { formatNumber } from '../lib/format'
 import { getTotalPages } from '../lib/pagination'
+import { PAGE_SIZE_OPTIONS, type SearchUrlState } from '../lib/searchUrl'
 import { Pagination } from './Pagination'
 import { RepositoryList } from './RepositoryList'
 import { SearchInput } from './SearchInput'
 
 /** Unauthenticated search allows 10 req/min, so wait for typing to pause */
 export const SEARCH_DEBOUNCE_MS = 400
-const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
-const DEFAULT_PAGE_SIZE = 20
 
 export function RepositorySearch() {
-  const [query, setQuery] = useState('')
-  const q = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS)
-  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
-  // The page belongs to the query it was picked for, so a new query starts at 1
-  const [paging, setPaging] = useState({ q, page: 1 })
-  const page = paging.q === q ? paging.page : 1
+  // The URL holds the committed search; the input holds what is being typed
+  const [{ q, page, perPage }, navigate] = useSearchUrlState(restoreFromHistory)
+  const [input, setInput] = useState(q)
   const resultsRef = useRef<HTMLDivElement>(null)
 
-  const search = useGitHubSearch(
-    'repositories',
-    q ? { q, per_page: pageSize, page } : null,
-  )
+  const commitQuery = useDebouncedCallback((text: string) => {
+    const next = text.trim()
+    // Typing is not worth a history entry per pause, so the query replaces it
+    navigate((prev) => (prev.q === next ? prev : { ...prev, q: next, page: 1 }), 'replace')
+  }, SEARCH_DEBOUNCE_MS)
+
+  function restoreFromHistory(state: SearchUrlState) {
+    // Back/forward wins over a half-typed query that hasn't been committed yet
+    commitQuery.cancel()
+    setInput(state.q)
+  }
+
+  const search = useGitHubSearch('repositories', q ? { q, per_page: perPage, page } : null)
+
+  function changeInput(text: string) {
+    setInput(text)
+    commitQuery.run(text)
+  }
 
   function goToPage(next: number) {
-    setPaging({ q, page: next })
+    // Each page gets its own history entry, so Back returns to the previous one
+    navigate((prev) => ({ ...prev, page: next }), 'push')
     // Bring the top of the list back into view when paging from the bottom
     const el = resultsRef.current
     if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start' })
   }
 
   function changePageSize(size: number) {
-    setPageSize(size)
-    setPaging({ q, page: 1 })
+    navigate((prev) => ({ ...prev, perPage: size, page: 1 }), 'replace')
   }
 
   return (
     <div className="space-y-4">
       <SearchInput
-        value={query}
-        onChange={setQuery}
+        value={input}
+        onChange={changeInput}
         placeholder="Search repositories, e.g. react language:typescript stars:>1000"
       />
 
@@ -72,14 +83,14 @@ export function RepositorySearch() {
               <RepositoryList items={search.data.items} />
               <Pagination
                 page={page}
-                pageSize={pageSize}
+                pageSize={perPage}
                 totalCount={search.data.total_count}
                 onPageChange={goToPage}
                 pageSizeOptions={PAGE_SIZE_OPTIONS}
                 onPageSizeChange={changePageSize}
               />
               {search.data.total_count > SEARCH_MAX_RESULTS &&
-                page >= getTotalPages(search.data.total_count, pageSize, SEARCH_MAX_RESULTS) && (
+                page >= getTotalPages(search.data.total_count, perPage, SEARCH_MAX_RESULTS) && (
                   <ResultLimitNotice />
                 )}
             </div>

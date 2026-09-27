@@ -243,6 +243,101 @@ describe('RepositorySearch', () => {
     })
   })
 
+  describe('URL state', () => {
+    const lastParams = () => search.mock.calls.at(-1)?.[1]
+
+    /** Simulates the browser's back/forward button landing on `url` */
+    async function popTo(url: string) {
+      window.history.replaceState(null, '', url)
+      await act(async () => {
+        window.dispatchEvent(new PopStateEvent('popstate'))
+      })
+    }
+
+    it('restores a search from the URL straight away', async () => {
+      window.history.replaceState(null, '', '/?q=react&page=2&per_page=50')
+      search.mockResolvedValue(response([repo], 500))
+      render(<RepositorySearch />)
+
+      // No debounce: the URL is a finished search, not typing
+      expect(lastParams()).toEqual({ q: 'react', per_page: 50, page: 2 })
+      expect(screen.getByRole<HTMLInputElement>('searchbox').value).toBe('react')
+
+      await flush(0)
+      expect(screen.getByRole('button', { name: 'Page 2' }).getAttribute('aria-current')).toBe('page')
+      expect(screen.getByLabelText<HTMLSelectElement>('Per page').value).toBe('50')
+    })
+
+    it('cleans up an invalid URL', () => {
+      window.history.replaceState(null, '', '/?q=react&page=abc&per_page=7&ref=home')
+      search.mockResolvedValue(response([repo]))
+      render(<RepositorySearch />)
+
+      expect(window.location.search).toBe('?q=react&ref=home')
+    })
+
+    it('writes the query once typing pauses, without adding history', async () => {
+      search.mockResolvedValue(response([repo], 100))
+      render(<RepositorySearch />)
+      const historyLength = window.history.length
+
+      typeQuery('react')
+      expect(window.location.search).toBe('')
+      await flush()
+      typeQuery('react hooks')
+      await flush()
+
+      expect(window.location.search).toBe('?q=react+hooks')
+      expect(window.history.length).toBe(historyLength)
+    })
+
+    it('adds a history entry per page, but not for the page size', async () => {
+      search.mockResolvedValue(response([repo], 500))
+      render(<RepositorySearch />)
+      typeQuery('react')
+      await flush()
+      const historyLength = window.history.length
+
+      fireEvent.click(screen.getByRole('button', { name: 'Page 2' }))
+      await flush(0)
+      expect(window.location.search).toBe('?q=react&page=2')
+      expect(window.history.length).toBe(historyLength + 1)
+
+      fireEvent.change(screen.getByLabelText('Per page'), { target: { value: '50' } })
+      await flush(0)
+      expect(window.location.search).toBe('?q=react&per_page=50')
+      expect(window.history.length).toBe(historyLength + 1)
+    })
+
+    it('follows back/forward navigation', async () => {
+      search.mockResolvedValue(response([repo], 500))
+      render(<RepositorySearch />)
+      typeQuery('react')
+      await flush()
+
+      await popTo('/?q=vue&page=3')
+      expect(screen.getByRole<HTMLInputElement>('searchbox').value).toBe('vue')
+      expect(lastParams()).toEqual({ q: 'vue', per_page: 20, page: 3 })
+
+      await popTo('/')
+      expect(screen.getByRole<HTMLInputElement>('searchbox').value).toBe('')
+      expect(screen.getByText(/type a keyword/i)).toBeTruthy()
+    })
+
+    it('lets back/forward win over a query that is still being typed', async () => {
+      search.mockResolvedValue(response([repo], 500))
+      render(<RepositorySearch />)
+
+      typeQuery('reac')
+      await popTo('/?q=vue')
+      await flush()
+
+      expect(window.location.search).toBe('?q=vue')
+      expect(lastParams()).toMatchObject({ q: 'vue' })
+      expect(search).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('shows the error message and retries on demand', async () => {
     search
       .mockRejectedValueOnce(new Error('Too many requests in a short time, retry after 10:01:00'))

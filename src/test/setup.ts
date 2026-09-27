@@ -8,4 +8,6 @@ afterEach(() => {
   cleanup()
   // The search cache is module-level and would otherwise leak between tests
   clearSearchCache()
+  // So does the jsdom URL, which holds the search state
+  window.history.replaceState(null, '', '/')
 })
