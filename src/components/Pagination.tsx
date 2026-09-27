@@ -13,7 +13,7 @@ interface PaginationProps {
   /** Pages shown either side of the current one */
   siblingCount?: number
   /** Show a page size picker; needs `onPageSizeChange` too */
-  pageSizeOptions?: number[]
+  pageSizeOptions?: readonly number[]
   onPageSizeChange?: (pageSize: number) => void
 }
 
