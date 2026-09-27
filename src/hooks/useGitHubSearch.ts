@@ -3,6 +3,7 @@ import { searchGitHub, type SearchOptions } from '../api/github'
 import {
   deleteCachedSearch,
   getCachedSearch,
+  peekCachedSearch,
   searchCacheKey,
   setCachedSearch,
 } from '../api/searchCache'
@@ -73,7 +74,8 @@ export function useGitHubSearch<T extends SearchType>(
     const controller = new AbortController()
 
     // A cache hit still settles through state, so the result stays on screen
-    // even if the entry expires while it is being shown.
+    // even if the entry expires while it is being shown. Reading it here, once
+    // per request, is also what counts as a use for LRU eviction.
     const cached = getCachedSearch<TData>(key)
     const request =
       cached !== undefined
@@ -117,7 +119,9 @@ export function useGitHubSearch<T extends SearchType>(
   // valid if it belongs to the current request. Until it does, a cache hit
   // is shown straight away instead of flashing a loading state.
   const current = settled?.key === key && settled.attempt === attempt ? settled : null
-  const cached = key !== null && !current ? getCachedSearch<TData>(key) : undefined
+  // Only peeks: rendering must not mutate the cache, and may run many times
+  // (or be thrown away) for the one request the effect above makes.
+  const cached = key !== null && !current ? peekCachedSearch<TData>(key) : undefined
 
   let state: SearchState<TData>
   if (queryError) {

@@ -36,12 +36,29 @@ export function searchCacheKey<T extends SearchType>(
   return JSON.stringify([type, compactParams, { token, textMatch: textMatch || undefined }])
 }
 
+function isFresh(entry: Entry): boolean {
+  return Date.now() - entry.storedAt < SEARCH_CACHE_TTL_MS
+}
+
+/**
+ * Reads an entry without changing the cache: it doesn't count as a use and
+ * doesn't drop an expired entry. Pure, so it's safe to call while rendering.
+ */
+export function peekCachedSearch<TData>(key: string): TData | undefined {
+  const entry = entries.get(key)
+  return entry && isFresh(entry) ? (entry.data as TData) : undefined
+}
+
+/**
+ * Reads an entry and marks it as recently used, dropping it if it has
+ * expired. Mutates the cache, so call it from effects, not while rendering.
+ */
 export function getCachedSearch<TData>(key: string): TData | undefined {
   const entry = entries.get(key)
   if (!entry) return undefined
 
   entries.delete(key)
-  if (Date.now() - entry.storedAt >= SEARCH_CACHE_TTL_MS) return undefined
+  if (!isFresh(entry)) return undefined
 
   entries.set(key, entry)
   return entry.data as TData
