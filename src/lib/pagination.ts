@@ -1,5 +1,10 @@
 export type PageItem = number | 'ellipsis'
 
+/** Number of pages that can actually be fetched, never less than 1 */
+export function getTotalPages(totalCount: number, pageSize: number, maxResults = Infinity): number {
+  return Math.max(1, Math.ceil(Math.min(totalCount, maxResults) / pageSize))
+}
+
 /**
  * Page numbers to render, collapsing long ranges into ellipses while always
  * keeping the first page, the last page and `siblings` pages either side of
