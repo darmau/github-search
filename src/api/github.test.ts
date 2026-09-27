@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GitHubApiError, searchGitHub } from './github'
+import { GitHubApiError, rateLimitBucket, searchGitHub } from './github'
+import { getQuota } from './rateLimit'
 
 const fetchMock = vi.fn<typeof fetch>()
 
@@ -209,5 +210,84 @@ describe('searchGitHub with a rejected token', () => {
     const error = await catchError(searchGitHub('repositories', { q: 'react' }, { token: 'expired' }))
     expect(error.status).toBe(401)
     expect(error.message).toBe('GitHub rejected the token: it is invalid, expired or revoked')
+  })
+})
+
+describe('searchGitHub rate limit tracking', () => {
+  const now = new Date('2026-09-27T10:00:00Z')
+  const reset = now.getTime() / 1000 + 30
+
+  function rateLimitResponse() {
+    return jsonResponse(
+      { message: 'API rate limit exceeded' },
+      { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(reset) } },
+    )
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(now)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('fails fast without a request until the limit resets', async () => {
+    fetchMock.mockResolvedValueOnce(rateLimitResponse())
+    const first = await catchError(searchGitHub('repositories', { q: 'react' }))
+
+    // A different query is limited just the same
+    const second = await catchError(searchGitHub('repositories', { q: 'vue' }))
+    expect(second).toBe(first)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(emptyResult))
+    vi.setSystemTime(reset * 1000)
+    await expect(searchGitHub('repositories', { q: 'vue' })).resolves.toEqual(emptyResult)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps separate limits per token and for code search', async () => {
+    fetchMock.mockResolvedValueOnce(rateLimitResponse())
+    await catchError(searchGitHub('repositories', { q: 'react' }))
+
+    fetchMock.mockImplementation(async () => jsonResponse(emptyResult))
+    await searchGitHub('repositories', { q: 'react' }, { token: 'ghp_mine' })
+    await searchGitHub('code', { q: 'react' })
+    await catchError(searchGitHub('issues', { q: 'react' }))
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+  })
+
+  it('waits a few seconds even when the reset time has already passed', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { message: 'API rate limit exceeded' },
+        { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(reset - 60) } },
+      ),
+    )
+
+    const error = await catchError(searchGitHub('repositories', { q: 'react' }))
+    expect(error.rateLimit?.resetAt).toEqual(new Date(now.getTime() + 5_000))
+  })
+
+  it('records the quota a successful response reports', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(emptyResult, {
+        headers: {
+          'x-ratelimit-limit': '10',
+          'x-ratelimit-remaining': '7',
+          'x-ratelimit-reset': String(reset),
+        },
+      }),
+    )
+
+    await searchGitHub('repositories', { q: 'react' })
+    expect(getQuota(rateLimitBucket('repositories'))).toEqual({
+      limit: 10,
+      remaining: 7,
+      resetAt: new Date(reset * 1000),
+    })
+    expect(getQuota(rateLimitBucket('repositories', 'ghp_other'))).toBeUndefined()
   })
 })

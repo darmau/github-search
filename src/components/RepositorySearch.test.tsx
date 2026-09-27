@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GitHubApiError, searchGitHub } from '../api/github'
+import { GitHubApiError, rateLimitBucket, searchGitHub } from '../api/github'
+import { recordQuota } from '../api/rateLimit'
 import { setGitHubToken } from '../hooks/useGitHubToken'
 import type { RepositorySearchResponse, RepositorySearchResultItem } from '../types/github'
 import { RepositorySearch, SEARCH_DEBOUNCE_MS } from './RepositorySearch'
@@ -477,6 +478,56 @@ describe('RepositorySearch', () => {
     expect(search).toHaveBeenCalledTimes(2)
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByRole('link', { name: 'facebook/react' })).toBeTruthy()
+  })
+
+  describe('rate limit', () => {
+    it('offers no retry, since it retries by itself once the limit resets', async () => {
+      search.mockRejectedValueOnce(
+        new GitHubApiError(403, null, { type: 'primary', resetAt: new Date(Date.now() + 30_000) }),
+      )
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      expect(screen.getByRole('alert').textContent).toContain('run again automatically')
+      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+
+      search.mockResolvedValue(response([repo]))
+      await flush(31_000)
+      expect(search).toHaveBeenCalledTimes(2)
+      expect(screen.getByRole('link', { name: 'facebook/react' })).toBeTruthy()
+    })
+
+    function reportQuota(remaining: number) {
+      act(() =>
+        recordQuota(rateLimitBucket('repositories'), {
+          limit: 10,
+          remaining,
+          resetAt: new Date(Date.now() + 60_000),
+        }),
+      )
+    }
+
+    it('warns when the quota is running low', async () => {
+      search.mockResolvedValue(response([repo]))
+      render(<RepositorySearch />)
+
+      reportQuota(3)
+      expect(screen.queryByText(/searches left/)).toBeNull()
+
+      reportQuota(2)
+      expect(screen.getByText(/2 of 10 searches left/).textContent).toContain('Add a GitHub token')
+    })
+
+    it('drops the warning once the quota resets', async () => {
+      render(<RepositorySearch />)
+
+      reportQuota(1)
+      expect(screen.getByText(/searches left/)).toBeTruthy()
+
+      await flush(60_000)
+      expect(screen.queryByText(/searches left/)).toBeNull()
+    })
   })
 
   describe('token', () => {

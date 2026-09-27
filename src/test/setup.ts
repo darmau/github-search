@@ -1,5 +1,6 @@
 import { cleanup } from '@testing-library/react'
 import { afterEach } from 'vitest'
+import { resetRateLimits } from '../api/rateLimit'
 import { clearSearchCache } from '../api/searchCache'
 import { setGitHubToken } from '../hooks/useGitHubToken'
 
@@ -9,6 +10,8 @@ afterEach(() => {
   cleanup()
   // The search cache is module-level and would otherwise leak between tests
   clearSearchCache()
+  // Likewise rate limit cooldowns and quotas
+  resetRateLimits()
   // So does the jsdom URL, which holds the search state
   window.history.replaceState(null, '', '/')
   // And the saved token, which lives in localStorage

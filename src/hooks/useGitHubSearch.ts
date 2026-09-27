@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { searchGitHub, type SearchOptions } from '../api/github'
+import { GitHubApiError, searchGitHub, type SearchOptions } from '../api/github'
 import {
   deleteCachedSearch,
   getCachedSearch,
@@ -9,6 +9,8 @@ import {
 } from '../api/searchCache'
 import { validateSearchQuery } from '../lib/searchQuery'
 import type { SearchEndpoints, SearchType } from '../types/github'
+
+const RATE_LIMIT_RETRY_SLACK_MS = 1_000
 
 export type SearchState<TData> =
   | { status: 'idle'; data: undefined; error: undefined }
@@ -38,7 +40,8 @@ interface Settled<TData> {
  * Successful results are cached for a few minutes (see `searchCache`), so
  * revisiting a page or query shows it instantly without spending rate limit.
  * A query GitHub is known to reject fails straight away with a
- * `SearchQueryError`, without a request.
+ * `SearchQueryError`, without a request. A rate limited search is retried
+ * automatically once the limit resets.
  *
  * @example
  * const result = useGitHubSearch('repositories', { q: debouncedQuery, sort: 'stars' })
@@ -119,6 +122,17 @@ export function useGitHubSearch<T extends SearchType>(
   // valid if it belongs to the current request. Until it does, a cache hit
   // is shown straight away instead of flashing a loading state.
   const current = settled?.key === key && settled.attempt === attempt ? settled : null
+
+  // While rate limited, searchGitHub fails fast with the same error, so a new
+  // query doesn't restart this timer: whatever is on screen at reset is retried.
+  const rateLimit = current?.error instanceof GitHubApiError ? current.error.rateLimit : null
+  useEffect(() => {
+    if (!rateLimit) return
+    const delay = rateLimit.resetAt.getTime() - Date.now() + RATE_LIMIT_RETRY_SLACK_MS
+    const timer = setTimeout(() => setAttempt((n) => n + 1), delay)
+    return () => clearTimeout(timer)
+  }, [rateLimit])
+
   // Only peeks: rendering must not mutate the cache, and may run many times
   // (or be thrown away) for the one request the effect above makes.
   const cached = key !== null && !current ? peekCachedSearch<TData>(key) : undefined

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { GitHubApiError, SEARCH_MAX_RESULTS } from '../api/github'
+import type { SearchQuota } from '../api/rateLimit'
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback'
 import { useGitHubSearch } from '../hooks/useGitHubSearch'
 import { useGitHubToken } from '../hooks/useGitHubToken'
+import { useSearchQuota } from '../hooks/useSearchQuota'
 import { useSearchUrlState } from '../hooks/useSearchUrlState'
 import { formatNumber } from '../lib/format'
 import { getTotalPages } from '../lib/pagination'
@@ -20,6 +22,9 @@ import { SortSelect } from './SortSelect'
 
 /** Unauthenticated search allows 10 req/min, so wait for typing to pause */
 export const SEARCH_DEBOUNCE_MS = 400
+
+/** Warn once no more than this share of the per-minute quota is left */
+const LOW_QUOTA_RATIO = 0.2
 
 export function RepositorySearch() {
   // The URL holds the committed search; the input holds what is being typed
@@ -48,6 +53,11 @@ export function RepositorySearch() {
     q ? { q, ...(sort && { sort, order }), per_page: perPage, page } : null,
     { token: token ?? undefined },
   )
+
+  const quota = useSearchQuota('repositories', token ?? undefined)
+  const rateLimited = search.error instanceof GitHubApiError && search.error.rateLimit !== null
+  // The rate limit error already says when searching resumes
+  const quotaLow = quota !== undefined && !rateLimited && quota.remaining <= quota.limit * LOW_QUOTA_RATIO
 
   // The URL may ask for a page past the end of this search, e.g. a stale link or
   // a hand-edited one. GitHub answers that with no items, which would read as
@@ -97,6 +107,8 @@ export function RepositorySearch() {
         </div>
         <SortSelect value={{ sort, order }} options={SORT_OPTIONS} onChange={changeSort} />
       </div>
+
+      {quotaLow && <LowQuotaNotice quota={quota} hasToken={token !== null} />}
 
       <div
         ref={resultsRef}
@@ -154,6 +166,15 @@ function ResultLimitNotice() {
   )
 }
 
+function LowQuotaNotice({ quota, hasToken }: { quota: SearchQuota; hasToken: boolean }) {
+  return (
+    <p className="text-sm text-amber-700 dark:text-amber-400">
+      {quota.remaining} of {quota.limit} searches left until {quota.resetAt.toLocaleTimeString()}.
+      {!hasToken && ' Add a GitHub token (top right) to get 30 a minute.'}
+    </p>
+  )
+}
+
 interface SearchErrorProps {
   error: Error
   hasToken: boolean
@@ -163,8 +184,10 @@ interface SearchErrorProps {
 function SearchError({ error, hasToken, onRetry }: SearchErrorProps) {
   const apiError = error instanceof GitHubApiError ? error : null
   // Retrying can't fix an invalid query or a bad token, only editing them can.
-  // Either edit starts a new search by itself.
-  const retryable = !(error instanceof SearchQueryError) && apiError?.status !== 401
+  // Either edit starts a new search by itself. A rate limit is retried
+  // automatically once it resets, and retrying sooner would fail anyway.
+  const retryable =
+    !(error instanceof SearchQueryError) && apiError?.status !== 401 && !apiError?.rateLimit
 
   return (
     <div
@@ -173,6 +196,7 @@ function SearchError({ error, hasToken, onRetry }: SearchErrorProps) {
     >
       <div className="space-y-1">
         <p>{error.message}</p>
+        {apiError?.rateLimit && <p>The search will run again automatically then.</p>}
         {apiError?.rateLimit && !hasToken && (
           <p>Add a GitHub token (top right) to raise the limit to 30 searches a minute.</p>
         )}

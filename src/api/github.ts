@@ -5,6 +5,13 @@ import type {
   ServiceUnavailableError,
   ValidationError,
 } from '../types/github'
+import {
+  getCooldown,
+  recordQuota,
+  startCooldown,
+  type RateLimitedError,
+  type SearchQuota,
+} from './rateLimit'
 
 const API_BASE = 'https://api.github.com'
 const API_VERSION = '2026-03-10'
@@ -72,6 +79,11 @@ function describeError(
 
 /** GitHub asks clients to wait at least this long when it gives no reset time */
 const DEFAULT_RETRY_DELAY_MS = 60_000
+/**
+ * A reset time already in the past (e.g. a fast local clock) would make a
+ * retry fire straight away and fail again, so always wait at least this long.
+ */
+const MIN_RETRY_DELAY_MS = 5_000
 
 function parseRateLimit(res: Response, body: GitHubErrorBody | null): RateLimit | null {
   if (res.status !== 403 && res.status !== 429) return null
@@ -92,7 +104,27 @@ function parseRateLimit(res: Response, body: GitHubErrorBody | null): RateLimit 
   else if (quotaExhausted && !Number.isNaN(reset)) resetAt = new Date(reset * 1000)
   else resetAt = new Date(Date.now() + DEFAULT_RETRY_DELAY_MS)
 
+  const earliest = Date.now() + MIN_RETRY_DELAY_MS
+  if (resetAt.getTime() < earliest) resetAt = new Date(earliest)
+
   return { type: quotaExhausted ? 'primary' : 'secondary', resetAt }
+}
+
+function parseQuota(res: Response): SearchQuota | null {
+  const limit = Number(res.headers.get('x-ratelimit-limit') ?? NaN)
+  const remaining = Number(res.headers.get('x-ratelimit-remaining') ?? NaN)
+  const reset = Number(res.headers.get('x-ratelimit-reset') ?? NaN)
+  if ([limit, remaining, reset].some(Number.isNaN)) return null
+  return { limit, remaining, resetAt: new Date(reset * 1000) }
+}
+
+/**
+ * Identifies a rate limit: GitHub counts each token (or, without one, each IP)
+ * separately, and code search separately from the other search endpoints.
+ * Defaults to the build-time token, just like `searchGitHub`.
+ */
+export function rateLimitBucket(type: SearchType, token: string | undefined = DEFAULT_TOKEN): string {
+  return JSON.stringify([token || null, type === 'code' ? 'code_search' : 'search'])
 }
 
 const BAD_TOKEN_MESSAGE = 'GitHub rejected the token: it is invalid, expired or revoked'
@@ -109,6 +141,11 @@ export async function searchGitHub<T extends SearchType>(
   params: SearchEndpoints[T]['params'],
   { signal, token = DEFAULT_TOKEN, textMatch = false }: SearchOptions = {},
 ): Promise<SearchEndpoints[T]['response']> {
+  // Fail fast while rate limited, without spending a request
+  const bucket = rateLimitBucket(type, token)
+  const cooldown = getCooldown(bucket)
+  if (cooldown) throw cooldown
+
   const query = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== '') query.set(key, String(value))
@@ -126,8 +163,11 @@ export async function searchGitHub<T extends SearchType>(
     const body = (await res.json().catch(() => null)) as GitHubErrorBody | null
     // GitHub just says "Bad credentials", which doesn't point at the token
     const message = res.status === 401 && token ? BAD_TOKEN_MESSAGE : undefined
-    throw new GitHubApiError(res.status, body, parseRateLimit(res, body), message)
+    const error = new GitHubApiError(res.status, body, parseRateLimit(res, body), message)
+    if (error.rateLimit) startCooldown(bucket, error as RateLimitedError)
+    throw error
   }
 
+  recordQuota(bucket, parseQuota(res))
   return res.json() as Promise<SearchEndpoints[T]['response']>
 }

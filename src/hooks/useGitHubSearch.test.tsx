@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { searchGitHub, type SearchOptions } from '../api/github'
+import { GitHubApiError, searchGitHub, type SearchOptions } from '../api/github'
 import { SEARCH_CACHE_TTL_MS } from '../api/searchCache'
 import { SearchQueryError } from '../lib/searchQuery'
 import type { RepositorySearchParams, RepositorySearchResponse } from '../types/github'
@@ -191,6 +191,59 @@ describe('refetch', () => {
 
     rerender({ params: { q: 'vue' } })
     expect(result.current.refetch).toBe(refetch)
+  })
+})
+
+describe('rate limit', () => {
+  const now = new Date('2026-09-27T10:00:00Z')
+  const rateLimited = () =>
+    new GitHubApiError(403, null, { type: 'primary', resetAt: new Date(now.getTime() + 30_000) })
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(now)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('retries automatically once the limit resets', async () => {
+    const { result } = renderSearch({ params: { q: 'react' } })
+    await settle(searches[0], { error: rateLimited() })
+    expect(result.current.status).toBe('error')
+
+    act(() => vi.advanceTimersByTime(29_000))
+    expect(searches).toHaveLength(1)
+
+    act(() => vi.advanceTimersByTime(2_000))
+    expect(result.current.status).toBe('loading')
+    expect(searches).toHaveLength(2)
+    expect(searches[1].params).toEqual({ q: 'react' })
+  })
+
+  it('retries whatever query is on screen when the limit resets', async () => {
+    const error = rateLimited()
+    const { rerender } = renderSearch({ params: { q: 'react' } })
+    await settle(searches[0], { error })
+
+    act(() => vi.advanceTimersByTime(10_000))
+    rerender({ params: { q: 'vue' } })
+    // searchGitHub fails fast with the same error while the limit lasts
+    await settle(searches[1], { error })
+
+    act(() => vi.advanceTimersByTime(21_000))
+    expect(searches).toHaveLength(3)
+    expect(searches[2].params).toEqual({ q: 'vue' })
+  })
+
+  it('does not retry once the query is cleared', async () => {
+    const { rerender } = renderSearch({ params: { q: 'react' } })
+    await settle(searches[0], { error: rateLimited() })
+
+    rerender({ params: null })
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(searches).toHaveLength(1)
   })
 })
 
