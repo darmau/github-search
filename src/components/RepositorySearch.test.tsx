@@ -346,6 +346,48 @@ describe('RepositorySearch', () => {
       expect(window.location.search).toBe('?q=react&ref=home')
     })
 
+    describe('page past the end of the results', () => {
+      it('moves to the last page without adding history', async () => {
+        window.history.replaceState(null, '', '/?q=react&page=40')
+        // 30 results make 2 pages of 20; anything later comes back empty
+        search.mockImplementation(async (_type, params) =>
+          response(params.page! <= 2 ? [repo] : [], 30),
+        )
+        render(<RepositorySearch />)
+        const historyLength = window.history.length
+
+        await flush(0)
+        expect(lastParams()).toEqual({ q: 'react', per_page: 20, page: 2 })
+        expect(window.location.search).toBe('?q=react&page=2')
+        expect(window.history.length).toBe(historyLength)
+        expect(screen.getByRole('link', { name: 'facebook/react' })).toBeTruthy()
+        expect(screen.getByRole('button', { name: 'Page 2' }).getAttribute('aria-current')).toBe('page')
+      })
+
+      it('keeps loading rather than claiming nothing matches', async () => {
+        window.history.replaceState(null, '', '/?q=react&page=40')
+        search
+          .mockResolvedValueOnce(response([], 30))
+          .mockReturnValueOnce(new Promise(() => {}))
+        render(<RepositorySearch />)
+
+        await flush(0)
+        expect(search).toHaveBeenCalledTimes(2)
+        expect(screen.getByLabelText('Loading results')).toBeTruthy()
+        expect(screen.queryByText(/no repositories match/i)).toBeNull()
+      })
+
+      it('goes back to page 1 when nothing matches at all', async () => {
+        window.history.replaceState(null, '', '/?q=zzzz-no-such-repo&page=5')
+        search.mockResolvedValue(response([], 0))
+        render(<RepositorySearch />)
+
+        await flush(0)
+        expect(window.location.search).toBe('?q=zzzz-no-such-repo')
+        expect(screen.getByText(/no repositories match/i)).toBeTruthy()
+      })
+    })
+
     it('writes the query once typing pauses, without adding history', async () => {
       search.mockResolvedValue(response([repo], 100))
       render(<RepositorySearch />)

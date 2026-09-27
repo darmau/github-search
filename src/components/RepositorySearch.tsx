@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SEARCH_MAX_RESULTS } from '../api/github'
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback'
 import { useGitHubSearch } from '../hooks/useGitHubSearch'
@@ -44,6 +44,21 @@ export function RepositorySearch() {
     q ? { q, ...(sort && { sort, order }), per_page: perPage, page } : null,
   )
 
+  // The URL may ask for a page past the end of this search, e.g. a stale link or
+  // a hand-edited one. GitHub answers that with no items, which would read as
+  // "no matches", so move to the last page instead.
+  const lastPage =
+    search.status === 'success'
+      ? getTotalPages(search.data.total_count, perPage, SEARCH_MAX_RESULTS)
+      : null
+  const pageOutOfRange = lastPage !== null && page > lastPage
+
+  useEffect(() => {
+    if (lastPage === null) return
+    // Not a page the user chose, so it shouldn't leave a history entry behind
+    navigate((prev) => (prev.page > lastPage ? { ...prev, page: lastPage } : prev), 'replace')
+  }, [lastPage, navigate])
+
   function changeInput(text: string) {
     setInput(text)
     commitQuery.run(text)
@@ -78,16 +93,21 @@ export function RepositorySearch() {
         <SortSelect value={{ sort, order }} options={SORT_OPTIONS} onChange={changeSort} />
       </div>
 
-      <div ref={resultsRef} aria-live="polite" aria-busy={search.status === 'loading'}>
+      <div
+        ref={resultsRef}
+        aria-live="polite"
+        aria-busy={search.status === 'loading' || pageOutOfRange}
+      >
         {search.status === 'idle' && (
           <p className="py-12 text-center text-gray-500">Type a keyword to search GitHub repositories.</p>
         )}
 
-        {search.status === 'loading' && <LoadingList />}
+        {(search.status === 'loading' || pageOutOfRange) && <LoadingList />}
 
         {search.status === 'error' && <SearchError error={search.error} onRetry={search.refetch} />}
 
         {search.status === 'success' &&
+          !pageOutOfRange &&
           (search.data.items.length === 0 ? (
             <p className="py-12 text-center text-gray-500">
               No repositories match <strong className="text-gray-700 dark:text-gray-300">{q}</strong>.
@@ -109,10 +129,9 @@ export function RepositorySearch() {
                 pageSizeOptions={PAGE_SIZE_OPTIONS}
                 onPageSizeChange={changePageSize}
               />
-              {search.data.total_count > SEARCH_MAX_RESULTS &&
-                page >= getTotalPages(search.data.total_count, perPage, SEARCH_MAX_RESULTS) && (
-                  <ResultLimitNotice />
-                )}
+              {search.data.total_count > SEARCH_MAX_RESULTS && page === lastPage && (
+                <ResultLimitNotice />
+              )}
             </div>
           ))}
       </div>
