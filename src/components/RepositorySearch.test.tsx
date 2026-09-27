@@ -134,6 +134,24 @@ describe('RepositorySearch', () => {
       expect(screen.getByRole('button', { name: 'Page 3' }).getAttribute('aria-current')).toBe('page')
     })
 
+    it('goes back to a visited page from the cache', async () => {
+      search.mockResolvedValue(response([repo], 100))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      fireEvent.click(screen.getByRole('button', { name: 'Page 2' }))
+      await flush(0)
+      expect(search).toHaveBeenCalledTimes(2)
+
+      fireEvent.click(screen.getByRole('button', { name: 'Page 1' }))
+      // No loading state in between: the page renders straight from the cache
+      expect(screen.queryByLabelText('Loading results')).toBeNull()
+      expect(screen.getByRole('button', { name: 'Page 1' }).getAttribute('aria-current')).toBe('page')
+      await flush(0)
+      expect(search).toHaveBeenCalledTimes(2)
+    })
+
     it('starts a new query on page 1', async () => {
       search.mockResolvedValue(response([repo], 100))
       render(<RepositorySearch />)

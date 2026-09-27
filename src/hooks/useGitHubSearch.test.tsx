@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { searchGitHub, type SearchOptions } from '../api/github'
+import { SEARCH_CACHE_TTL_MS } from '../api/searchCache'
 import type { RepositorySearchParams, RepositorySearchResponse } from '../types/github'
 import { useGitHubSearch } from './useGitHubSearch'
 
@@ -189,5 +190,99 @@ describe('refetch', () => {
 
     rerender({ params: { q: 'vue' } })
     expect(result.current.refetch).toBe(refetch)
+  })
+})
+
+describe('cache', () => {
+  it('shows a revisited query instantly without searching again', async () => {
+    const { result, rerender } = renderSearch({ params: { q: 'react' } })
+    await settle(searches[0], { data: response('react') })
+    rerender({ params: { q: 'vue' } })
+    await settle(searches[1], { data: response('vue') })
+
+    rerender({ params: { q: 'react' } })
+    expect(result.current).toMatchObject({ status: 'success', data: response('react') })
+    expect(searches).toHaveLength(2)
+  })
+
+  it('serves a fresh mount from the cache', async () => {
+    const first = renderSearch({ params: { q: 'react' } })
+    await settle(searches[0], { data: response('react') })
+    first.unmount()
+
+    const { result } = renderSearch({ params: { q: 'react' } })
+    expect(result.current).toMatchObject({ status: 'success', data: response('react') })
+    expect(searches).toHaveLength(1)
+  })
+
+  it('shares entries between equivalent params', async () => {
+    const { result, rerender } = renderSearch({ params: { q: 'react', page: 1 } })
+    await settle(searches[0], { data: response('react') })
+
+    rerender({ params: { page: 1, q: 'react', sort: undefined } })
+    expect(result.current.status).toBe('success')
+    expect(searches).toHaveLength(1)
+  })
+
+  it('does not cache errors', async () => {
+    const { result, rerender } = renderSearch({ params: { q: 'react' } })
+    await settle(searches[0], { error: new Error('boom') })
+    rerender({ params: { q: 'vue' } })
+
+    rerender({ params: { q: 'react' } })
+    expect(result.current.status).toBe('loading')
+    expect(searches).toHaveLength(3)
+  })
+
+  it('bypasses and refreshes the cache on refetch', async () => {
+    const { result } = renderSearch({ params: { q: 'react' } })
+    await settle(searches[0], { data: response('old') })
+
+    act(() => result.current.refetch())
+    expect(result.current.status).toBe('loading')
+    expect(searches).toHaveLength(2)
+
+    await settle(searches[1], { data: response('new') })
+    expect(result.current.data).toEqual(response('new'))
+
+    // The refreshed result replaces the old cache entry
+    const remounted = renderSearch({ params: { q: 'react' } })
+    expect(remounted.result.current.data).toEqual(response('new'))
+  })
+
+  describe('expiry', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+    })
+
+    afterEach(() => {
+      vi.useRealTimers()
+    })
+
+    it('searches again once the entry has expired', async () => {
+      const { result, rerender } = renderSearch({ params: { q: 'react' } })
+      await settle(searches[0], { data: response('react') })
+      rerender({ params: { q: 'vue' } })
+
+      vi.advanceTimersByTime(SEARCH_CACHE_TTL_MS)
+      rerender({ params: { q: 'react' } })
+      expect(result.current.status).toBe('loading')
+      expect(searches).toHaveLength(3)
+    })
+
+    it('keeps showing a cached result that expires while on screen', async () => {
+      const first = renderSearch({ params: { q: 'react' } })
+      await settle(searches[0], { data: response('react') })
+      first.unmount()
+
+      const { result, rerender } = renderSearch({ params: { q: 'react' } })
+      // Let the cache hit settle into state
+      await act(async () => {})
+
+      vi.advanceTimersByTime(SEARCH_CACHE_TTL_MS)
+      rerender({ params: { q: 'react' } })
+      expect(result.current).toMatchObject({ status: 'success', data: response('react') })
+      expect(searches).toHaveLength(1)
+    })
   })
 })
