@@ -17,6 +17,9 @@ const API_VERSION = '2026-03-10'
  */
 const DEFAULT_TOKEN = import.meta.env.VITE_GITHUB_TOKEN
 
+/** The Search API only serves the first 1000 results of any query */
+export const SEARCH_MAX_RESULTS = 1000
+
 export type GitHubErrorBody = BasicError | ValidationError | ServiceUnavailableError
 
 /**
