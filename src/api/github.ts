@@ -65,11 +65,6 @@ function describeError(
 /** GitHub asks clients to wait at least this long when it gives no reset time */
 const DEFAULT_RETRY_DELAY_MS = 60_000
 
-/**
- * Follows GitHub's guidance: retry-after wins, then x-ratelimit-reset for an
- * exhausted quota, otherwise wait a minute.
- * https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit
- */
 function parseRateLimit(res: Response, body: GitHubErrorBody | null): RateLimit | null {
   if (res.status !== 403 && res.status !== 429) return null
 
