@@ -87,7 +87,7 @@ describe('RepositorySearch', () => {
 
     await act(async () => resolve(response([repo], 1234)))
     expect(screen.queryByLabelText('Loading results')).toBeNull()
-    expect(screen.getByText('1,234 repositories')).toBeTruthy()
+    expect(screen.getByText(/^1,234 repositories/)).toBeTruthy()
     expect(screen.getByRole('link', { name: 'facebook/react' }).getAttribute('href')).toBe(
       'https://github.com/facebook/react',
     )
@@ -164,6 +164,64 @@ describe('RepositorySearch', () => {
       // 500 results / 50 per page
       expect(screen.getByRole('button', { name: 'Page 10' })).toBeTruthy()
       expect(screen.queryByRole('button', { name: 'Page 11' })).toBeNull()
+    })
+  })
+
+  describe('1000-result limit', () => {
+    const notice = () => screen.queryByText(/only returns the first 1,000 results/)
+
+    it('mentions the limit next to the count when there are more results', async () => {
+      search.mockResolvedValue(response([repo], 250_000))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      expect(screen.getByText(/^250,000 repositories/).textContent).toContain('first 1,000 shown')
+      // Not on page 1, only once the user can't page any further
+      expect(notice()).toBeNull()
+    })
+
+    it('explains the limit on the last reachable page', async () => {
+      search.mockResolvedValue(response([repo], 250_000))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      // 1000 / 20 per page
+      fireEvent.click(screen.getByRole('button', { name: 'Page 50' }))
+      await flush(0)
+
+      expect(search.mock.calls.at(-1)?.[1]).toMatchObject({ page: 50 })
+      expect(notice()).toBeTruthy()
+      expect(screen.getByRole('button', { name: 'Next' })).toHaveProperty('disabled', true)
+    })
+
+    it('moves with the page size', async () => {
+      search.mockResolvedValue(response([repo], 250_000))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      fireEvent.change(screen.getByLabelText('Per page'), { target: { value: '100' } })
+      await flush(0)
+      // 1000 / 100 per page
+      fireEvent.click(screen.getByRole('button', { name: 'Page 10' }))
+      await flush(0)
+
+      expect(notice()).toBeTruthy()
+    })
+
+    it('stays quiet when every result is reachable', async () => {
+      search.mockResolvedValue(response([repo], 100))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      fireEvent.click(screen.getByRole('button', { name: 'Page 5' }))
+      await flush(0)
+
+      expect(screen.getByText(/^100 repositories/).textContent).not.toContain('shown')
+      expect(notice()).toBeNull()
     })
   })
 
