@@ -185,6 +185,76 @@ describe('RepositorySearch', () => {
     })
   })
 
+  describe('sorting', () => {
+    const lastParams = () => search.mock.calls.at(-1)?.[1]
+    const sortSelect = () => screen.getByLabelText<HTMLSelectElement>('Sort by')
+
+    function chooseSort(label: string) {
+      const option = screen.getByRole<HTMLOptionElement>('option', { name: label })
+      fireEvent.change(sortSelect(), { target: { value: option.value } })
+    }
+
+    it('uses best match by default', async () => {
+      search.mockResolvedValue(response([repo]))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      expect(lastParams()).not.toHaveProperty('sort')
+      expect(sortSelect().selectedOptions[0].textContent).toBe('Best match')
+    })
+
+    it('asks GitHub for the chosen order and goes back to page 1', async () => {
+      search.mockResolvedValue(response([repo], 500))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      fireEvent.click(screen.getByRole('button', { name: 'Page 2' }))
+      await flush(0)
+      chooseSort('Fewest stars')
+      await flush(0)
+
+      expect(lastParams()).toEqual({ q: 'react', sort: 'stars', order: 'asc', per_page: 20, page: 1 })
+      expect(window.location.search).toBe('?q=react&sort=stars&order=asc')
+      // Results are shown in the order GitHub returns them
+      expect(screen.getByRole('link', { name: 'facebook/react' })).toBeTruthy()
+
+      const calls = search.mock.calls.length
+      chooseSort('Best match')
+      await flush(0)
+      expect(window.location.search).toBe('?q=react')
+      // Best match page 1 was already fetched, so it comes from the cache
+      expect(search).toHaveBeenCalledTimes(calls)
+    })
+
+    it('keeps the order when paging and when the query changes', async () => {
+      search.mockResolvedValue(response([repo], 500))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      chooseSort('Recently updated')
+      await flush(0)
+      fireEvent.click(screen.getByRole('button', { name: 'Page 2' }))
+      await flush(0)
+      expect(lastParams()).toEqual({ q: 'react', sort: 'updated', order: 'desc', per_page: 20, page: 2 })
+
+      typeQuery('vue')
+      await flush()
+      expect(lastParams()).toEqual({ q: 'vue', sort: 'updated', order: 'desc', per_page: 20, page: 1 })
+    })
+
+    it('restores the order from the URL', () => {
+      window.history.replaceState(null, '', '/?q=react&sort=forks')
+      search.mockResolvedValue(response([repo]))
+      render(<RepositorySearch />)
+
+      expect(lastParams()).toEqual({ q: 'react', sort: 'forks', order: 'desc', per_page: 20, page: 1 })
+      expect(sortSelect().selectedOptions[0].textContent).toBe('Most forks')
+    })
+  })
+
   describe('1000-result limit', () => {
     const notice = () => screen.queryByText(/only returns the first 1,000 results/)
 

@@ -6,17 +6,23 @@ import { useSearchUrlState } from '../hooks/useSearchUrlState'
 import { formatNumber } from '../lib/format'
 import { getTotalPages } from '../lib/pagination'
 import { SearchQueryError } from '../lib/searchQuery'
-import { PAGE_SIZE_OPTIONS, type SearchUrlState } from '../lib/searchUrl'
+import {
+  PAGE_SIZE_OPTIONS,
+  SORT_OPTIONS,
+  type SearchSort,
+  type SearchUrlState,
+} from '../lib/searchUrl'
 import { Pagination } from './Pagination'
 import { RepositoryList } from './RepositoryList'
 import { SearchInput } from './SearchInput'
+import { SortSelect } from './SortSelect'
 
 /** Unauthenticated search allows 10 req/min, so wait for typing to pause */
 export const SEARCH_DEBOUNCE_MS = 400
 
 export function RepositorySearch() {
   // The URL holds the committed search; the input holds what is being typed
-  const [{ q, page, perPage }, navigate] = useSearchUrlState(restoreFromHistory)
+  const [{ q, sort, order, page, perPage }, navigate] = useSearchUrlState(restoreFromHistory)
   const [input, setInput] = useState(q)
   const resultsRef = useRef<HTMLDivElement>(null)
 
@@ -32,7 +38,11 @@ export function RepositorySearch() {
     setInput(state.q)
   }
 
-  const search = useGitHubSearch('repositories', q ? { q, per_page: perPage, page } : null)
+  // GitHub does the ordering, so the whole result set is sorted, not just this page
+  const search = useGitHubSearch(
+    'repositories',
+    q ? { q, ...(sort && { sort, order }), per_page: perPage, page } : null,
+  )
 
   function changeInput(text: string) {
     setInput(text)
@@ -51,13 +61,22 @@ export function RepositorySearch() {
     navigate((prev) => ({ ...prev, perPage: size, page: 1 }), 'replace')
   }
 
+  function changeSort(next: SearchSort) {
+    navigate((prev) => ({ ...prev, ...next, page: 1 }), 'replace')
+  }
+
   return (
     <div className="space-y-4">
-      <SearchInput
-        value={input}
-        onChange={changeInput}
-        placeholder="Search repositories, e.g. react language:typescript stars:>1000"
-      />
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="min-w-64 flex-1">
+          <SearchInput
+            value={input}
+            onChange={changeInput}
+            placeholder="Search repositories, e.g. react language:typescript stars:>1000"
+          />
+        </div>
+        <SortSelect value={{ sort, order }} options={SORT_OPTIONS} onChange={changeSort} />
+      </div>
 
       <div ref={resultsRef} aria-live="polite" aria-busy={search.status === 'loading'}>
         {search.status === 'idle' && (
