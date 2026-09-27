@@ -102,6 +102,8 @@ export function RepositorySearch() {
           <SearchInput
             value={input}
             onChange={changeInput}
+            // Enter searches now rather than after the typing pause
+            onSubmit={commitQuery.flush}
             placeholder="Search repositories, e.g. react language:typescript stars:>1000"
           />
         </div>
