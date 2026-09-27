@@ -452,6 +452,21 @@ describe('RepositorySearch', () => {
     })
   })
 
+  it('searches straight away on Enter, without waiting for the typing pause', async () => {
+    search.mockResolvedValue(response([repo]))
+    render(<RepositorySearch />)
+
+    typeQuery('react')
+    fireEvent.submit(screen.getByRole('search'))
+    await flush(0)
+    expect(search).toHaveBeenCalledTimes(1)
+    expect(window.location.search).toBe('?q=react')
+
+    // The pending debounce was used up, so it doesn't search again
+    await flush()
+    expect(search).toHaveBeenCalledTimes(1)
+  })
+
   it('explains an invalid query without searching or offering a retry', async () => {
     render(<RepositorySearch />)
 

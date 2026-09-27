@@ -61,3 +61,28 @@ it('runs the latest callback and stays stable across renders', () => {
   expect(first).not.toHaveBeenCalled()
   expect(second).toHaveBeenCalledWith('a')
 })
+
+it('makes the pending call straight away on flush, and only once', () => {
+  const fn = vi.fn()
+  const { result } = renderHook(() => useDebouncedCallback(fn, 300))
+
+  result.current.run('a')
+  result.current.flush()
+  expect(fn).toHaveBeenCalledTimes(1)
+  expect(fn).toHaveBeenCalledWith('a')
+
+  act(() => vi.advanceTimersByTime(300))
+  result.current.flush()
+  expect(fn).toHaveBeenCalledTimes(1)
+})
+
+it('does nothing on flush when no call is pending', () => {
+  const fn = vi.fn()
+  const { result } = renderHook(() => useDebouncedCallback(fn, 300))
+
+  result.current.flush()
+  result.current.run('a')
+  result.current.cancel()
+  result.current.flush()
+  expect(fn).not.toHaveBeenCalled()
+})
