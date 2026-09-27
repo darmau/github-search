@@ -81,7 +81,9 @@ export function useGitHubSearch<T extends SearchType>(
           )
 
     request
-      .then((data) => setSettled({ key, attempt, data }))
+      .then((data) => {
+        if (!controller.signal.aborted) setSettled({ key, attempt, data })
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return
         setSettled({
@@ -95,6 +97,11 @@ export function useGitHubSearch<T extends SearchType>(
     // so a slow earlier response can never overwrite a newer one.
     return () => controller.abort()
   }, [key, attempt])
+
+  // A result only belongs to the key it was fetched for. Drop it once the key
+  // moves on, so switching back later can't resurrect an old error or a
+  // result whose cache entry has since expired.
+  if (settled !== null && settled.key !== key) setSettled(null)
 
   const refetch = useCallback(() => {
     if (keyRef.current !== null) deleteCachedSearch(keyRef.current)
