@@ -5,6 +5,7 @@ import { useGitHubSearch } from '../hooks/useGitHubSearch'
 import { useSearchUrlState } from '../hooks/useSearchUrlState'
 import { formatNumber } from '../lib/format'
 import { getTotalPages } from '../lib/pagination'
+import { SearchQueryError } from '../lib/searchQuery'
 import { PAGE_SIZE_OPTIONS, type SearchUrlState } from '../lib/searchUrl'
 import { Pagination } from './Pagination'
 import { RepositoryList } from './RepositoryList'
@@ -111,19 +112,24 @@ function ResultLimitNotice() {
 }
 
 function SearchError({ error, onRetry }: { error: Error; onRetry: () => void }) {
+  // Retrying an invalid query can't help; only editing it can
+  const retryable = !(error instanceof SearchQueryError)
+
   return (
     <div
       role="alert"
       className="flex items-start justify-between gap-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300"
     >
       <p>{error.message}</p>
-      <button
-        type="button"
-        onClick={onRetry}
-        className="shrink-0 rounded-md border border-red-300 px-3 py-1 font-medium hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900"
-      >
-        Retry
-      </button>
+      {retryable && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="shrink-0 rounded-md border border-red-300 px-3 py-1 font-medium hover:bg-red-100 dark:border-red-800 dark:hover:bg-red-900"
+        >
+          Retry
+        </button>
+      )}
     </div>
   )
 }

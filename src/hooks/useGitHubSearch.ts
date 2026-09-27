@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { searchGitHub, type SearchOptions } from '../api/github'
 import {
   deleteCachedSearch,
@@ -6,6 +6,7 @@ import {
   searchCacheKey,
   setCachedSearch,
 } from '../api/searchCache'
+import { validateSearchQuery } from '../lib/searchQuery'
 import type { SearchEndpoints, SearchType } from '../types/github'
 
 export type SearchState<TData> =
@@ -35,6 +36,8 @@ interface Settled<TData> {
  *
  * Successful results are cached for a few minutes (see `searchCache`), so
  * revisiting a page or query shows it instantly without spending rate limit.
+ * A query GitHub is known to reject fails straight away with a
+ * `SearchQueryError`, without a request.
  *
  * @example
  * const result = useGitHubSearch('repositories', { q: debouncedQuery, sort: 'stars' })
@@ -47,7 +50,9 @@ export function useGitHubSearch<T extends SearchType>(
 ): UseGitHubSearchResult<SearchEndpoints[T]['response']> {
   type TData = SearchEndpoints[T]['response']
 
-  const key = params && params.q.trim() ? searchCacheKey(type, params, options) : null
+  const q = params?.q.trim() ?? ''
+  const queryError = useMemo(() => (q ? validateSearchQuery(q) : null), [q])
+  const key = params && q && !queryError ? searchCacheKey(type, params, options) : null
   const [attempt, setAttempt] = useState(0)
   const [settled, setSettled] = useState<Settled<TData> | null>(null)
 
@@ -115,7 +120,9 @@ export function useGitHubSearch<T extends SearchType>(
   const cached = key !== null && !current ? getCachedSearch<TData>(key) : undefined
 
   let state: SearchState<TData>
-  if (key === null) {
+  if (queryError) {
+    state = { status: 'error', data: undefined, error: queryError }
+  } else if (key === null) {
     state = { status: 'idle', data: undefined, error: undefined }
   } else if (cached !== undefined) {
     state = { status: 'success', data: cached, error: undefined }

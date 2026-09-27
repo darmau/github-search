@@ -2,6 +2,7 @@ import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { searchGitHub, type SearchOptions } from '../api/github'
 import { SEARCH_CACHE_TTL_MS } from '../api/searchCache'
+import { SearchQueryError } from '../lib/searchQuery'
 import type { RepositorySearchParams, RepositorySearchResponse } from '../types/github'
 import { useGitHubSearch } from './useGitHubSearch'
 
@@ -284,5 +285,33 @@ describe('cache', () => {
       expect(result.current).toMatchObject({ status: 'success', data: response('react') })
       expect(searches).toHaveLength(1)
     })
+  })
+})
+
+describe('query validation', () => {
+  const tooLong = 'a'.repeat(257)
+
+  it('fails an invalid query straight away, without a request', () => {
+    const { result } = renderSearch({ params: { q: tooLong } })
+
+    expect(result.current.status).toBe('error')
+    expect(result.current.error).toBeInstanceOf(SearchQueryError)
+    expect(searches).toHaveLength(0)
+  })
+
+  it('searches once the query is fixed', () => {
+    const { result, rerender } = renderSearch({ params: { q: tooLong } })
+
+    rerender({ params: { q: 'react' } })
+    expect(result.current.status).toBe('loading')
+    expect(searches).toHaveLength(1)
+  })
+
+  it('does not send a request when refetching an invalid query', () => {
+    const { result } = renderSearch({ params: { q: tooLong } })
+
+    act(() => result.current.refetch())
+    expect(result.current.status).toBe('error')
+    expect(searches).toHaveLength(0)
   })
 })

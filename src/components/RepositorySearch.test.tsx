@@ -338,6 +338,17 @@ describe('RepositorySearch', () => {
     })
   })
 
+  it('explains an invalid query without searching or offering a retry', async () => {
+    render(<RepositorySearch />)
+
+    typeQuery('a OR b OR c OR d OR e OR f OR g')
+    await flush()
+
+    expect(screen.getByRole('alert').textContent).toContain('Too many AND / OR / NOT operators: 6')
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+    expect(search).not.toHaveBeenCalled()
+  })
+
   it('shows the error message and retries on demand', async () => {
     search
       .mockRejectedValueOnce(new Error('Too many requests in a short time, retry after 10:01:00'))
