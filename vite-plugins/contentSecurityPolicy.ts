@@ -1,0 +1,39 @@
+import type { Plugin } from 'vite'
+
+/**
+ * Where the page may load from and send data to. The token sits in
+ * localStorage, so if a script were ever injected it could read it; this
+ * keeps it from being sent anywhere but api.github.com.
+ */
+const POLICY = {
+  'default-src': ["'none'"],
+  'script-src': ["'self'"],
+  'style-src': ["'self'"],
+  'img-src': ["'self'", 'https://avatars.githubusercontent.com'],
+  'connect-src': ['https://api.github.com'],
+  'base-uri': ["'none'"],
+  // The search form is handled in JS and never actually submits
+  'form-action': ["'none'"],
+}
+
+/**
+ * Adds the policy as a <meta> tag to the built page. Build only: the dev
+ * server relies on inline scripts and a WebSocket for HMR, which it blocks.
+ *
+ * A <meta> policy can't set frame-ancestors or reporting; send it as a
+ * response header instead if the host allows that.
+ */
+export function contentSecurityPolicy(): Plugin {
+  const content = Object.entries(POLICY)
+    .map(([directive, sources]) => `${directive} ${sources.join(' ')}`)
+    .join('; ')
+
+  return {
+    name: 'content-security-policy',
+    apply: 'build',
+    transformIndexHtml: () => [
+      // Only content after the tag is covered, so it goes before any script
+      { tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content }, injectTo: 'head-prepend' },
+    ],
+  }
+}
