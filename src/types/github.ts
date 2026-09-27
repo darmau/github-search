@@ -896,3 +896,20 @@ export interface ServiceUnavailableError {
   message?: string
   documentation_url?: string
 }
+
+// ---------------------------------------------------------------------------
+// Endpoint map: search type → params / response
+// ---------------------------------------------------------------------------
+
+export interface SearchEndpoints {
+  repositories: { params: RepositorySearchParams; response: RepositorySearchResponse }
+  users: { params: UserSearchParams; response: UserSearchResponse }
+  code: { params: CodeSearchParams; response: CodeSearchResponse }
+  commits: { params: CommitSearchParams; response: CommitSearchResponse }
+  issues: { params: IssueSearchParams; response: IssueSearchResponse }
+  labels: { params: LabelSearchParams; response: LabelSearchResponse }
+  topics: { params: TopicSearchParams; response: TopicSearchResponse }
+}
+
+/** Path segment after /search/ */
+export type SearchType = keyof SearchEndpoints
