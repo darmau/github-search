@@ -1,18 +1,41 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useGitHubSearch } from '../hooks/useGitHubSearch'
 import { formatNumber } from '../lib/format'
+import { Pagination } from './Pagination'
 import { RepositoryList } from './RepositoryList'
 import { SearchInput } from './SearchInput'
 
 /** Unauthenticated search allows 10 req/min, so wait for typing to pause */
 export const SEARCH_DEBOUNCE_MS = 400
-const PAGE_SIZE = 20
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
+const DEFAULT_PAGE_SIZE = 20
 
 export function RepositorySearch() {
   const [query, setQuery] = useState('')
   const q = useDebouncedValue(query.trim(), SEARCH_DEBOUNCE_MS)
-  const search = useGitHubSearch('repositories', q ? { q, per_page: PAGE_SIZE } : null)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
+  // The page belongs to the query it was picked for, so a new query starts at 1
+  const [paging, setPaging] = useState({ q, page: 1 })
+  const page = paging.q === q ? paging.page : 1
+  const resultsRef = useRef<HTMLDivElement>(null)
+
+  const search = useGitHubSearch(
+    'repositories',
+    q ? { q, per_page: pageSize, page } : null,
+  )
+
+  function goToPage(next: number) {
+    setPaging({ q, page: next })
+    // Bring the top of the list back into view when paging from the bottom
+    const el = resultsRef.current
+    if (el && el.getBoundingClientRect().top < 0) el.scrollIntoView({ block: 'start' })
+  }
+
+  function changePageSize(size: number) {
+    setPageSize(size)
+    setPaging({ q, page: 1 })
+  }
 
   return (
     <div className="space-y-4">
@@ -22,7 +45,7 @@ export function RepositorySearch() {
         placeholder="Search repositories, e.g. react language:typescript stars:>1000"
       />
 
-      <div aria-live="polite" aria-busy={search.status === 'loading'}>
+      <div ref={resultsRef} aria-live="polite" aria-busy={search.status === 'loading'}>
         {search.status === 'idle' && (
           <p className="py-12 text-center text-gray-500">Type a keyword to search GitHub repositories.</p>
         )}
@@ -43,6 +66,14 @@ export function RepositorySearch() {
                 {search.data.incomplete_results && ' (results may be incomplete)'}
               </p>
               <RepositoryList items={search.data.items} />
+              <Pagination
+                page={page}
+                pageSize={pageSize}
+                totalCount={search.data.total_count}
+                onPageChange={goToPage}
+                pageSizeOptions={PAGE_SIZE_OPTIONS}
+                onPageSizeChange={changePageSize}
+              />
             </div>
           ))}
       </div>

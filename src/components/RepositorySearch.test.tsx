@@ -71,7 +71,7 @@ describe('RepositorySearch', () => {
     expect(search).toHaveBeenCalledTimes(1)
     expect(search).toHaveBeenCalledWith(
       'repositories',
-      { q: 'react', per_page: 20 },
+      { q: 'react', per_page: 20, page: 1 },
       expect.anything(),
     )
   })
@@ -115,6 +115,56 @@ describe('RepositorySearch', () => {
     await flush()
     expect(screen.getByText(/type a keyword/i)).toBeTruthy()
     expect(search).toHaveBeenCalledTimes(1)
+  })
+
+  describe('pagination', () => {
+    /** Params of the most recent search */
+    const lastParams = () => search.mock.calls.at(-1)?.[1]
+
+    it('requests the page that is clicked', async () => {
+      search.mockResolvedValue(response([repo], 100))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      fireEvent.click(screen.getByRole('button', { name: 'Page 3' }))
+      await flush(0)
+
+      expect(lastParams()).toEqual({ q: 'react', per_page: 20, page: 3 })
+      expect(screen.getByRole('button', { name: 'Page 3' }).getAttribute('aria-current')).toBe('page')
+    })
+
+    it('starts a new query on page 1', async () => {
+      search.mockResolvedValue(response([repo], 100))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+      await flush(0)
+      expect(lastParams()).toMatchObject({ q: 'react', page: 2 })
+
+      typeQuery('vue')
+      await flush()
+      expect(lastParams()).toEqual({ q: 'vue', per_page: 20, page: 1 })
+    })
+
+    it('changes the page size and goes back to page 1', async () => {
+      search.mockResolvedValue(response([repo], 500))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      fireEvent.click(screen.getByRole('button', { name: 'Page 2' }))
+      await flush(0)
+      fireEvent.change(screen.getByLabelText('Per page'), { target: { value: '50' } })
+      await flush(0)
+
+      expect(lastParams()).toEqual({ q: 'react', per_page: 50, page: 1 })
+      // 500 results / 50 per page
+      expect(screen.getByRole('button', { name: 'Page 10' })).toBeTruthy()
+      expect(screen.queryByRole('button', { name: 'Page 11' })).toBeNull()
+    })
   })
 
   it('shows the error message and retries on demand', async () => {
