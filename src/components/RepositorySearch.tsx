@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react'
+import { SEARCH_MAX_RESULTS } from '../api/github'
 import { useDebouncedValue } from '../hooks/useDebouncedValue'
 import { useGitHubSearch } from '../hooks/useGitHubSearch'
 import { formatNumber } from '../lib/format'
+import { getTotalPages } from '../lib/pagination'
 import { Pagination } from './Pagination'
 import { RepositoryList } from './RepositoryList'
 import { SearchInput } from './SearchInput'
@@ -63,6 +65,8 @@ export function RepositorySearch() {
             <div className="space-y-3">
               <p className="text-sm text-gray-500">
                 {formatNumber(search.data.total_count)} repositories
+                {search.data.total_count > SEARCH_MAX_RESULTS &&
+                  ` · first ${formatNumber(SEARCH_MAX_RESULTS)} shown`}
                 {search.data.incomplete_results && ' (results may be incomplete)'}
               </p>
               <RepositoryList items={search.data.items} />
@@ -74,10 +78,24 @@ export function RepositorySearch() {
                 pageSizeOptions={PAGE_SIZE_OPTIONS}
                 onPageSizeChange={changePageSize}
               />
+              {search.data.total_count > SEARCH_MAX_RESULTS &&
+                page >= getTotalPages(search.data.total_count, pageSize, SEARCH_MAX_RESULTS) && (
+                  <ResultLimitNotice />
+                )}
             </div>
           ))}
       </div>
     </div>
+  )
+}
+
+function ResultLimitNotice() {
+  return (
+    <p className="rounded-lg border border-gray-200 bg-gray-100 p-4 text-sm text-gray-600 dark:border-gray-800 dark:bg-gray-900 dark:text-gray-400">
+      GitHub search only returns the first {formatNumber(SEARCH_MAX_RESULTS)} results. Narrow your
+      query to see others, e.g. add <code className="font-mono">language:rust</code>,{' '}
+      <code className="font-mono">stars:&gt;500</code> or <code className="font-mono">pushed:&gt;2026-01-01</code>.
+    </p>
   )
 }
 

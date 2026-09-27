@@ -1,8 +1,6 @@
 import { useId, type ComponentProps } from 'react'
-import { getPageItems } from '../lib/pagination'
-
-/** The Search API only serves the first 1000 results of any query */
-const GITHUB_MAX_RESULTS = 1000
+import { SEARCH_MAX_RESULTS } from '../api/github'
+import { getPageItems, getTotalPages } from '../lib/pagination'
 
 interface PaginationProps {
   /** Current page, 1-based */
@@ -24,13 +22,13 @@ export function Pagination({
   pageSize,
   totalCount,
   onPageChange,
-  maxResults = GITHUB_MAX_RESULTS,
+  maxResults = SEARCH_MAX_RESULTS,
   siblingCount = 1,
   pageSizeOptions,
   onPageSizeChange,
 }: PaginationProps) {
   const sizeSelectId = useId()
-  const totalPages = Math.max(1, Math.ceil(Math.min(totalCount, maxResults) / pageSize))
+  const totalPages = getTotalPages(totalCount, pageSize, maxResults)
   const showSizePicker = pageSizeOptions && pageSizeOptions.length > 0 && onPageSizeChange
 
   if (totalPages <= 1 && !showSizePicker) return null
