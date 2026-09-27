@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { searchGitHub } from '../api/github'
+import { GitHubApiError, searchGitHub } from '../api/github'
+import { setGitHubToken } from '../hooks/useGitHubToken'
 import type { RepositorySearchResponse, RepositorySearchResultItem } from '../types/github'
 import { RepositorySearch, SEARCH_DEBOUNCE_MS } from './RepositorySearch'
 
@@ -476,5 +477,63 @@ describe('RepositorySearch', () => {
     expect(search).toHaveBeenCalledTimes(2)
     expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.getByRole('link', { name: 'facebook/react' })).toBeTruthy()
+  })
+
+  describe('token', () => {
+    const lastOptions = () => search.mock.calls.at(-1)?.[2]
+    const rateLimited = () =>
+      new GitHubApiError(403, { message: 'API rate limit exceeded' }, {
+        type: 'primary',
+        resetAt: new Date(),
+      })
+
+    it('searches with the saved token, and again when it changes', async () => {
+      setGitHubToken('ghp_first')
+      search.mockResolvedValue(response([repo]))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      expect(lastOptions()).toMatchObject({ token: 'ghp_first' })
+
+      await act(async () => setGitHubToken(null))
+      expect(search).toHaveBeenCalledTimes(2)
+      expect(lastOptions()?.token).toBeUndefined()
+    })
+
+    it('suggests a token when rate limited without one', async () => {
+      search.mockRejectedValue(rateLimited())
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      expect(screen.getByRole('alert').textContent).toContain('Add a GitHub token')
+    })
+
+    it('does not suggest a token when one is already in use', async () => {
+      setGitHubToken('ghp_saved')
+      search.mockRejectedValue(rateLimited())
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      expect(screen.getByRole('alert').textContent).not.toContain('Add a GitHub token')
+    })
+
+    it('points at the token instead of offering a retry when it is rejected', async () => {
+      setGitHubToken('ghp_expired')
+      search.mockRejectedValueOnce(new GitHubApiError(401, null, null, 'GitHub rejected the token'))
+      render(<RepositorySearch />)
+
+      typeQuery('react')
+      await flush()
+      expect(screen.getByRole('alert').textContent).toContain('Replace or remove it')
+      expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+
+      // Removing the bad token is enough to search again
+      search.mockResolvedValue(response([repo]))
+      await act(async () => setGitHubToken(null))
+      expect(screen.getByRole('link', { name: 'facebook/react' })).toBeTruthy()
+    })
   })
 })

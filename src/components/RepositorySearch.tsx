@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { SEARCH_MAX_RESULTS } from '../api/github'
+import { GitHubApiError, SEARCH_MAX_RESULTS } from '../api/github'
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback'
 import { useGitHubSearch } from '../hooks/useGitHubSearch'
+import { useGitHubToken } from '../hooks/useGitHubToken'
 import { useSearchUrlState } from '../hooks/useSearchUrlState'
 import { formatNumber } from '../lib/format'
 import { getTotalPages } from '../lib/pagination'
@@ -38,10 +39,14 @@ export function RepositorySearch() {
     setInput(state.q)
   }
 
+  // A saved token takes over from the build-time one; changing it searches again
+  const token = useGitHubToken()
+
   // GitHub does the ordering, so the whole result set is sorted, not just this page
   const search = useGitHubSearch(
     'repositories',
     q ? { q, ...(sort && { sort, order }), per_page: perPage, page } : null,
+    { token: token ?? undefined },
   )
 
   // The URL may ask for a page past the end of this search, e.g. a stale link or
@@ -104,7 +109,7 @@ export function RepositorySearch() {
 
         {(search.status === 'loading' || pageOutOfRange) && <LoadingList />}
 
-        {search.status === 'error' && <SearchError error={search.error} onRetry={search.refetch} />}
+        {search.status === 'error' && <SearchError error={search.error} hasToken={token !== null} onRetry={search.refetch} />}
 
         {search.status === 'success' &&
           !pageOutOfRange &&
@@ -149,16 +154,30 @@ function ResultLimitNotice() {
   )
 }
 
-function SearchError({ error, onRetry }: { error: Error; onRetry: () => void }) {
-  // Retrying an invalid query can't help; only editing it can
-  const retryable = !(error instanceof SearchQueryError)
+interface SearchErrorProps {
+  error: Error
+  hasToken: boolean
+  onRetry: () => void
+}
+
+function SearchError({ error, hasToken, onRetry }: SearchErrorProps) {
+  const apiError = error instanceof GitHubApiError ? error : null
+  // Retrying can't fix an invalid query or a bad token, only editing them can.
+  // Either edit starts a new search by itself.
+  const retryable = !(error instanceof SearchQueryError) && apiError?.status !== 401
 
   return (
     <div
       role="alert"
       className="flex items-start justify-between gap-4 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-300"
     >
-      <p>{error.message}</p>
+      <div className="space-y-1">
+        <p>{error.message}</p>
+        {apiError?.rateLimit && !hasToken && (
+          <p>Add a GitHub token (top right) to raise the limit to 30 searches a minute.</p>
+        )}
+        {apiError?.status === 401 && hasToken && <p>Replace or remove it under Token saved (top right).</p>}
+      </div>
       {retryable && (
         <button
           type="button"

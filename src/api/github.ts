@@ -40,8 +40,13 @@ export class GitHubApiError extends Error {
   /** Set when the request was rejected by the rate limiter */
   readonly rateLimit: RateLimit | null
 
-  constructor(status: number, body: GitHubErrorBody | null, rateLimit: RateLimit | null) {
-    super(describeError(status, body, rateLimit))
+  constructor(
+    status: number,
+    body: GitHubErrorBody | null,
+    rateLimit: RateLimit | null,
+    message = describeError(status, body, rateLimit),
+  ) {
+    super(message)
     this.name = 'GitHubApiError'
     this.status = status
     this.body = body
@@ -90,6 +95,8 @@ function parseRateLimit(res: Response, body: GitHubErrorBody | null): RateLimit 
   return { type: quotaExhausted ? 'primary' : 'secondary', resetAt }
 }
 
+const BAD_TOKEN_MESSAGE = 'GitHub rejected the token: it is invalid, expired or revoked'
+
 export interface SearchOptions {
   signal?: AbortSignal
   token?: string
@@ -117,7 +124,9 @@ export async function searchGitHub<T extends SearchType>(
 
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as GitHubErrorBody | null
-    throw new GitHubApiError(res.status, body, parseRateLimit(res, body))
+    // GitHub just says "Bad credentials", which doesn't point at the token
+    const message = res.status === 401 && token ? BAD_TOKEN_MESSAGE : undefined
+    throw new GitHubApiError(res.status, body, parseRateLimit(res, body), message)
   }
 
   return res.json() as Promise<SearchEndpoints[T]['response']>

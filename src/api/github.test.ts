@@ -201,3 +201,13 @@ describe('searchGitHub errors', () => {
     expect(error.message).toBe('GitHub API request failed (502)')
   })
 })
+
+describe('searchGitHub with a rejected token', () => {
+  it('blames the token when one was sent', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ message: 'Bad credentials' }, { status: 401 }))
+
+    const error = await catchError(searchGitHub('repositories', { q: 'react' }, { token: 'expired' }))
+    expect(error.status).toBe(401)
+    expect(error.message).toBe('GitHub rejected the token: it is invalid, expired or revoked')
+  })
+})
