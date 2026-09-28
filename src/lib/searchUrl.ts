@@ -106,10 +106,19 @@ export const SORT_OPTIONS: { readonly [T in SearchType]: readonly SortOption<Sor
   ],
 }
 
-/** What is being searched, as stored in `?type=…&q=…&sort=…&order=…&page=…&per_page=…` */
+/**
+ * What is being searched, as stored in
+ * `?type=…&repo=…&q=…&sort=…&order=…&page=…&per_page=…`
+ */
 export interface SearchUrlState extends SearchSort {
   /** Always one whose `SORT_OPTIONS` include `sort` */
   type: SearchType
+  /**
+   * The repository label search looks in, as typed ("owner/name"). Only read
+   * from and written to the URL for label search, but kept while switching
+   * types so coming back to labels doesn't lose it.
+   */
+  repo: string
   q: string
   page: number
   perPage: number
@@ -122,6 +131,7 @@ export interface SearchUrlState extends SearchSort {
 export function parseSearchUrl(search: string): SearchUrlState {
   const params = new URLSearchParams(search)
   const type = parseType(params.get('type'))
+  const repo = type === 'labels' ? (params.get('repo') ?? '').trim() : ''
   const q = (params.get('q') ?? '').trim()
 
   const perPage = Number(params.get('per_page'))
@@ -132,7 +142,7 @@ export function parseSearchUrl(search: string): SearchUrlState {
   const lastPage = getTotalPages(SEARCH_MAX_RESULTS, validPerPage)
   const validPage = q && Number.isInteger(page) && page >= 1 ? Math.min(page, lastPage) : 1
 
-  return { type, q, ...parseSort(type, params), page: validPage, perPage: validPerPage }
+  return { type, repo, q, ...parseSort(type, params), page: validPage, perPage: validPerPage }
 }
 
 function parseType(value: string | null): SearchType {
@@ -151,16 +161,22 @@ function parseSort(type: SearchType, params: URLSearchParams): SearchSort {
   return match ? { sort: match.sort, order: match.order } : DEFAULT_SORT
 }
 
+const OWN_PARAMS = ['type', 'repo', 'q', 'sort', 'order', 'page', 'per_page']
+
 /**
  * Writes search state into a query string, leaving defaults out so a fresh
  * search keeps a short URL. Params that aren't ours are kept.
  */
 export function toSearchUrl(
-  { type, q, sort, order, page, perPage }: SearchUrlState,
+  { type, repo, q, sort, order, page, perPage }: SearchUrlState,
   current = '',
 ): string {
   const params = new URLSearchParams(current)
+  // Rewritten from scratch, so the same search always gives the same URL
+  // whatever order its params were changed in
+  for (const name of OWN_PARAMS) params.delete(name)
   setParam(params, 'type', type !== DEFAULT_SEARCH_TYPE ? type : null)
+  setParam(params, 'repo', type === 'labels' && repo ? repo : null)
   setParam(params, 'q', q || null)
   setParam(params, 'sort', sort)
   setParam(params, 'order', sort && order !== 'desc' ? order : null)
@@ -174,6 +190,7 @@ export function toSearchUrl(
 export function isSameSearch(a: SearchUrlState, b: SearchUrlState): boolean {
   return (
     a.type === b.type &&
+    a.repo === b.repo &&
     a.q === b.q &&
     isSameSort(a, b) &&
     a.page === b.page &&
@@ -193,6 +210,29 @@ export function sortFor<T extends SearchType>(type: T, { sort, order }: SearchSo
   const options: readonly SortOption[] = SORT_OPTIONS[type]
   const offered = options.some((o) => o.sort === sort)
   return offered ? { sort: sort as SortFor<T> | null, order } : DEFAULT_SORT
+}
+
+/**
+ * The params to send for this search, or null when there is nothing to
+ * search yet. Label search also needs the id of its repository.
+ */
+export function toSearchParams(
+  state: SearchUrlState,
+  repositoryId?: number,
+): SearchEndpoints[SearchType]['params'] | null {
+  const { type, q, page, perPage } = state
+  if (!q) return null
+  if (type === 'labels' && repositoryId === undefined) return null
+
+  // sortFor only lets through a sort this type accepts
+  const { sort, order } = sortFor(type, state)
+  return {
+    q,
+    ...(sort && { sort, order }),
+    per_page: perPage,
+    page,
+    ...(type === 'labels' && { repository_id: repositoryId }),
+  }
 }
 
 /**

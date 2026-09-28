@@ -6,6 +6,7 @@ import {
   SEARCH_TYPES,
   SORT_OPTIONS,
   sortFor,
+  toSearchParams,
   toSearchUrl,
   withSearchType,
   type SearchUrlState,
@@ -13,6 +14,7 @@ import {
 
 const base: SearchUrlState = {
   type: 'repositories',
+  repo: '',
   q: 'react',
   ...DEFAULT_SORT,
   page: 1,
@@ -27,6 +29,7 @@ describe('parseSearchUrl', () => {
   it('reads q, page and per_page', () => {
     expect(parseSearchUrl('?q=react&sort=forks&order=asc&page=3&per_page=50')).toEqual({
       type: 'repositories',
+      repo: '',
       q: 'react',
       sort: 'forks',
       order: 'asc',
@@ -75,6 +78,11 @@ describe('parseSearchUrl', () => {
     expect(parseSearchUrl(`?type=${type}&q=react`).type).toBe(type)
   })
 
+  it('reads the repository for label search only', () => {
+    expect(parseSearchUrl('?type=labels&repo=+vercel/next.js+&q=bug').repo).toBe('vercel/next.js')
+    expect(parseSearchUrl('?type=issues&repo=vercel/next.js&q=bug').repo).toBe('')
+  })
+
   it.each(['?type=wikis', '?type=', '?type=REPOSITORIES'])('treats %j as a repository search', (search) => {
     expect(parseSearchUrl(`${search}&q=react`).type).toBe('repositories')
   })
@@ -114,6 +122,15 @@ describe('toSearchUrl', () => {
     )
   })
 
+  it('writes the repository for label search only', () => {
+    expect(toSearchUrl({ ...base, type: 'labels', repo: 'vercel/next.js' })).toBe(
+      '?type=labels&repo=vercel%2Fnext.js&q=react',
+    )
+    expect(toSearchUrl({ ...base, type: 'issues', repo: 'vercel/next.js' }, '?repo=a/b')).toBe(
+      '?type=issues&q=react',
+    )
+  })
+
   it('drops the page when there is no query', () => {
     expect(toSearchUrl({ ...base, q: '', page: 3, perPage: 50 })).toBe('?per_page=50')
   })
@@ -132,6 +149,7 @@ describe('toSearchUrl', () => {
   it('round-trips through parseSearchUrl', () => {
     const state: SearchUrlState = {
       type: 'repositories',
+      repo: '',
       q: 'react language:typescript stars:>1000',
       sort: 'stars',
       order: 'asc',
@@ -161,10 +179,54 @@ describe('sortFor', () => {
   })
 })
 
+describe('toSearchParams', () => {
+  it('builds the request params', () => {
+    expect(toSearchParams({ ...base, sort: 'stars', order: 'asc', page: 3, perPage: 50 })).toEqual({
+      q: 'react',
+      sort: 'stars',
+      order: 'asc',
+      per_page: 50,
+      page: 3,
+    })
+  })
+
+  it('leaves out best match', () => {
+    expect(toSearchParams(base)).toEqual({ q: 'react', per_page: DEFAULT_PAGE_SIZE, page: 1 })
+  })
+
+  it('leaves out a sort the type does not offer', () => {
+    expect(toSearchParams({ ...base, type: 'topics', sort: 'stars', order: 'asc' })).not.toHaveProperty('sort')
+  })
+
+  it('is null without a query', () => {
+    expect(toSearchParams({ ...base, q: '' })).toBeNull()
+  })
+
+  it('needs a repository id for label search', () => {
+    const labels: SearchUrlState = { ...base, type: 'labels', repo: 'vercel/next.js', q: 'bug' }
+    expect(toSearchParams(labels)).toBeNull()
+    expect(toSearchParams(labels, 70107786)).toEqual({
+      q: 'bug',
+      per_page: DEFAULT_PAGE_SIZE,
+      page: 1,
+      repository_id: 70107786,
+    })
+  })
+
+  it('ignores a repository id for other types', () => {
+    expect(toSearchParams(base, 1)).not.toHaveProperty('repository_id')
+  })
+})
+
 describe('withSearchType', () => {
   it('keeps the query and page size but resets the sort and page', () => {
     const state: SearchUrlState = { ...base, sort: 'stars', order: 'asc', page: 4, perPage: 50 }
     expect(withSearchType(state, 'users')).toEqual({ ...base, type: 'users', perPage: 50 })
+  })
+
+  it('keeps the repository for coming back to label search', () => {
+    const labels: SearchUrlState = { ...base, type: 'labels', repo: 'vercel/next.js' }
+    expect(withSearchType(labels, 'issues').repo).toBe('vercel/next.js')
   })
 
   it('leaves the state alone when the type is unchanged', () => {

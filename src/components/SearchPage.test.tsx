@@ -1,17 +1,19 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GitHubApiError, rateLimitBucket, searchGitHub } from '../api/github'
+import { getRepository, GitHubApiError, rateLimitBucket, searchGitHub } from '../api/github'
 import { recordQuota } from '../api/rateLimit'
 import { setGitHubToken } from '../hooks/useGitHubToken'
 import type { RepositorySearchResponse, RepositorySearchResultItem } from '../types/github'
-import { RepositorySearch, SEARCH_DEBOUNCE_MS } from './RepositorySearch'
+import { SearchPage, SEARCH_DEBOUNCE_MS } from './SearchPage'
 
 vi.mock('../api/github', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/github')>()),
   searchGitHub: vi.fn(),
+  getRepository: vi.fn(),
 }))
 
 const search = vi.mocked(searchGitHub)
+const lookUpRepository = vi.mocked(getRepository)
 
 const repo = {
   id: 1,
@@ -49,11 +51,12 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   search.mockReset()
+  lookUpRepository.mockReset()
 })
 
-describe('RepositorySearch', () => {
+describe('SearchPage', () => {
   it('shows a hint and does not search before anything is typed', () => {
-    render(<RepositorySearch />)
+    render(<SearchPage />)
 
     expect(screen.getByText(/type a keyword/i)).toBeTruthy()
     expect(search).not.toHaveBeenCalled()
@@ -61,7 +64,7 @@ describe('RepositorySearch', () => {
 
   it('searches once typing pauses, with the trimmed query', async () => {
     search.mockResolvedValue(response([]))
-    render(<RepositorySearch />)
+    render(<SearchPage />)
 
     typeQuery('re')
     await flush(SEARCH_DEBOUNCE_MS - 100)
@@ -81,7 +84,7 @@ describe('RepositorySearch', () => {
   it('shows a loading state, then the results', async () => {
     let resolve!: (data: RepositorySearchResponse) => void
     search.mockReturnValue(new Promise((r) => (resolve = r)))
-    render(<RepositorySearch />)
+    render(<SearchPage />)
 
     typeQuery('react')
     await flush()
@@ -100,7 +103,7 @@ describe('RepositorySearch', () => {
 
   it('shows an empty state when nothing matches', async () => {
     search.mockResolvedValue(response([]))
-    render(<RepositorySearch />)
+    render(<SearchPage />)
 
     typeQuery('zzzz-no-such-repo')
     await flush()
@@ -109,7 +112,7 @@ describe('RepositorySearch', () => {
 
   it('returns to the hint when the query is cleared', async () => {
     search.mockResolvedValue(response([repo]))
-    render(<RepositorySearch />)
+    render(<SearchPage />)
 
     typeQuery('react')
     await flush()
@@ -125,7 +128,7 @@ describe('RepositorySearch', () => {
 
     it('requests the page that is clicked', async () => {
       search.mockResolvedValue(response([repo], 100))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -138,7 +141,7 @@ describe('RepositorySearch', () => {
 
     it('goes back to a visited page from the cache', async () => {
       search.mockResolvedValue(response([repo], 100))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -156,7 +159,7 @@ describe('RepositorySearch', () => {
 
     it('starts a new query on page 1', async () => {
       search.mockResolvedValue(response([repo], 100))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -171,7 +174,7 @@ describe('RepositorySearch', () => {
 
     it('changes the page size and goes back to page 1', async () => {
       search.mockResolvedValue(response([repo], 500))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -198,7 +201,7 @@ describe('RepositorySearch', () => {
 
     it('uses best match by default', async () => {
       search.mockResolvedValue(response([repo]))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -208,7 +211,7 @@ describe('RepositorySearch', () => {
 
     it('asks GitHub for the chosen order and goes back to page 1', async () => {
       search.mockResolvedValue(response([repo], 500))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -232,7 +235,7 @@ describe('RepositorySearch', () => {
 
     it('keeps the order when paging and when the query changes', async () => {
       search.mockResolvedValue(response([repo], 500))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -250,7 +253,7 @@ describe('RepositorySearch', () => {
     it('restores the order from the URL', () => {
       window.history.replaceState(null, '', '/?q=react&sort=forks')
       search.mockResolvedValue(response([repo]))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       expect(lastParams()).toEqual({ q: 'react', sort: 'forks', order: 'desc', per_page: 20, page: 1 })
       expect(sortSelect().selectedOptions[0].textContent).toBe('Most forks')
@@ -262,7 +265,7 @@ describe('RepositorySearch', () => {
 
     it('mentions the limit next to the count when there are more results', async () => {
       search.mockResolvedValue(response([repo], 250_000))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -273,7 +276,7 @@ describe('RepositorySearch', () => {
 
     it('explains the limit on the last reachable page', async () => {
       search.mockResolvedValue(response([repo], 250_000))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -288,7 +291,7 @@ describe('RepositorySearch', () => {
 
     it('moves with the page size', async () => {
       search.mockResolvedValue(response([repo], 250_000))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -303,7 +306,7 @@ describe('RepositorySearch', () => {
 
     it('stays quiet when every result is reachable', async () => {
       search.mockResolvedValue(response([repo], 100))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -329,7 +332,7 @@ describe('RepositorySearch', () => {
     it('restores a search from the URL straight away', async () => {
       window.history.replaceState(null, '', '/?q=react&page=2&per_page=50')
       search.mockResolvedValue(response([repo], 500))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       // No debounce: the URL is a finished search, not typing
       expect(lastParams()).toEqual({ q: 'react', per_page: 50, page: 2 })
@@ -343,9 +346,9 @@ describe('RepositorySearch', () => {
     it('cleans up an invalid URL', () => {
       window.history.replaceState(null, '', '/?q=react&page=abc&per_page=7&ref=home')
       search.mockResolvedValue(response([repo]))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
-      expect(window.location.search).toBe('?q=react&ref=home')
+      expect(window.location.search).toBe('?ref=home&q=react')
     })
 
     describe('page past the end of the results', () => {
@@ -355,7 +358,7 @@ describe('RepositorySearch', () => {
         search.mockImplementation(async (_type, params) =>
           response(params.page! <= 2 ? [repo] : [], 30),
         )
-        render(<RepositorySearch />)
+        render(<SearchPage />)
         const historyLength = window.history.length
 
         await flush(0)
@@ -371,7 +374,7 @@ describe('RepositorySearch', () => {
         search
           .mockResolvedValueOnce(response([], 30))
           .mockReturnValueOnce(new Promise(() => {}))
-        render(<RepositorySearch />)
+        render(<SearchPage />)
 
         await flush(0)
         expect(search).toHaveBeenCalledTimes(2)
@@ -382,7 +385,7 @@ describe('RepositorySearch', () => {
       it('goes back to page 1 when nothing matches at all', async () => {
         window.history.replaceState(null, '', '/?q=zzzz-no-such-repo&page=5')
         search.mockResolvedValue(response([], 0))
-        render(<RepositorySearch />)
+        render(<SearchPage />)
 
         await flush(0)
         expect(window.location.search).toBe('?q=zzzz-no-such-repo')
@@ -392,7 +395,7 @@ describe('RepositorySearch', () => {
 
     it('writes the query once typing pauses, without adding history', async () => {
       search.mockResolvedValue(response([repo], 100))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
       const historyLength = window.history.length
 
       typeQuery('react')
@@ -407,7 +410,7 @@ describe('RepositorySearch', () => {
 
     it('adds a history entry per page, but not for the page size', async () => {
       search.mockResolvedValue(response([repo], 500))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
       typeQuery('react')
       await flush()
       const historyLength = window.history.length
@@ -425,7 +428,7 @@ describe('RepositorySearch', () => {
 
     it('follows back/forward navigation', async () => {
       search.mockResolvedValue(response([repo], 500))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
       typeQuery('react')
       await flush()
 
@@ -440,7 +443,7 @@ describe('RepositorySearch', () => {
 
     it('lets back/forward win over a query that is still being typed', async () => {
       search.mockResolvedValue(response([repo], 500))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('reac')
       await popTo('/?q=vue')
@@ -454,7 +457,7 @@ describe('RepositorySearch', () => {
 
   it('searches straight away on Enter, without waiting for the typing pause', async () => {
     search.mockResolvedValue(response([repo]))
-    render(<RepositorySearch />)
+    render(<SearchPage />)
 
     typeQuery('react')
     fireEvent.submit(screen.getByRole('search'))
@@ -468,7 +471,7 @@ describe('RepositorySearch', () => {
   })
 
   it('explains an invalid query without searching or offering a retry', async () => {
-    render(<RepositorySearch />)
+    render(<SearchPage />)
 
     typeQuery('a OR b OR c OR d OR e OR f OR g')
     await flush()
@@ -482,7 +485,7 @@ describe('RepositorySearch', () => {
     search
       .mockRejectedValueOnce(new Error('Too many requests in a short time, retry after 10:01:00'))
       .mockResolvedValueOnce(response([repo]))
-    render(<RepositorySearch />)
+    render(<SearchPage />)
 
     typeQuery('react')
     await flush()
@@ -500,7 +503,7 @@ describe('RepositorySearch', () => {
       search.mockRejectedValueOnce(
         new GitHubApiError(403, null, { type: 'primary', resource: 'search', resetAt: new Date(Date.now() + 30_000) }),
       )
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -525,7 +528,7 @@ describe('RepositorySearch', () => {
 
     it('warns when the quota is running low', async () => {
       search.mockResolvedValue(response([repo]))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       reportQuota(3)
       expect(screen.queryByText(/searches left/)).toBeNull()
@@ -535,7 +538,7 @@ describe('RepositorySearch', () => {
     })
 
     it('drops the warning once the quota resets', async () => {
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       reportQuota(1)
       expect(screen.getByText(/searches left/)).toBeTruthy()
@@ -557,7 +560,7 @@ describe('RepositorySearch', () => {
     it('searches with the saved token, and again when it changes', async () => {
       setGitHubToken('ghp_first')
       search.mockResolvedValue(response([repo]))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -570,7 +573,7 @@ describe('RepositorySearch', () => {
 
     it('suggests a token when rate limited without one', async () => {
       search.mockRejectedValue(rateLimited())
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -580,7 +583,7 @@ describe('RepositorySearch', () => {
     it('does not suggest a token when one is already in use', async () => {
       setGitHubToken('ghp_saved')
       search.mockRejectedValue(rateLimited())
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -590,7 +593,7 @@ describe('RepositorySearch', () => {
     it('points at the token instead of offering a retry when it is rejected', async () => {
       setGitHubToken('ghp_expired')
       search.mockRejectedValueOnce(new GitHubApiError(401, null, null, 'GitHub rejected the token'))
-      render(<RepositorySearch />)
+      render(<SearchPage />)
 
       typeQuery('react')
       await flush()
@@ -601,6 +604,232 @@ describe('RepositorySearch', () => {
       search.mockResolvedValue(response([repo]))
       await act(async () => setGitHubToken(null))
       expect(screen.getByRole('link', { name: 'facebook/react' })).toBeTruthy()
+    })
+  })
+
+  describe('search type', () => {
+    const typeSelect = () => screen.getByLabelText<HTMLSelectElement>('Search in')
+    const chooseType = (type: string) => fireEvent.change(typeSelect(), { target: { value: type } })
+    const emptyResponse = { total_count: 0, incomplete_results: false, items: [] }
+
+    it('searches repositories by default', () => {
+      render(<SearchPage />)
+      expect(typeSelect().value).toBe('repositories')
+    })
+
+    it('searches the chosen type with the same query, from page 1 and best match', async () => {
+      search.mockResolvedValue(response([repo], 500))
+      render(<SearchPage />)
+
+      typeQuery('react')
+      await flush()
+      fireEvent.change(screen.getByLabelText('Sort by'), {
+        target: { value: screen.getByRole<HTMLOptionElement>('option', { name: 'Most forks' }).value },
+      })
+      await flush(0)
+      fireEvent.click(screen.getByRole('button', { name: 'Page 2' }))
+      await flush(0)
+
+      search.mockResolvedValue(emptyResponse)
+      chooseType('users')
+      await flush(0)
+
+      expect(search).toHaveBeenLastCalledWith('users', { q: 'react', per_page: 20, page: 1 }, expect.anything())
+      expect(window.location.search).toBe('?type=users&q=react')
+      expect(screen.getByText(/no users match/i)).toBeTruthy()
+      expect(screen.getByLabelText<HTMLSelectElement>('Sort by').selectedOptions[0].textContent).toBe('Best match')
+    })
+
+    it('carries over a query that is still being typed', async () => {
+      search.mockResolvedValue(emptyResponse)
+      render(<SearchPage />)
+
+      typeQuery('react')
+      chooseType('topics')
+      await flush(0)
+
+      expect(search).toHaveBeenCalledTimes(1)
+      expect(search).toHaveBeenLastCalledWith('topics', { q: 'react', per_page: 20, page: 1 }, expect.anything())
+    })
+
+    it('adds a history entry, so Back returns to the previous type', async () => {
+      search.mockResolvedValue(emptyResponse)
+      render(<SearchPage />)
+      const length = window.history.length
+
+      chooseType('commits')
+      expect(window.history.length).toBe(length + 1)
+    })
+
+    it('restores the type and its sort from the URL', () => {
+      window.history.replaceState(null, '', '/?type=issues&q=crash&sort=comments')
+      search.mockResolvedValue(emptyResponse)
+      render(<SearchPage />)
+
+      expect(typeSelect().value).toBe('issues')
+      expect(search).toHaveBeenLastCalledWith(
+        'issues',
+        { q: 'crash', sort: 'comments', order: 'desc', per_page: 20, page: 1 },
+        expect.anything(),
+      )
+      expect(screen.getByLabelText<HTMLSelectElement>('Sort by').selectedOptions[0].textContent).toBe('Most commented')
+    })
+
+    it('uses a placeholder and wording for the type', () => {
+      window.history.replaceState(null, '', '/?type=commits')
+      render(<SearchPage />)
+
+      expect(screen.getByRole<HTMLInputElement>('searchbox').placeholder).toMatch(/^Search commits/)
+      expect(screen.getByText(/type a keyword to search github commits/i)).toBeTruthy()
+    })
+
+    it('offers no sort where GitHub only has best match', () => {
+      window.history.replaceState(null, '', '/?type=topics')
+      render(<SearchPage />)
+      expect(screen.queryByLabelText('Sort by')).toBeNull()
+    })
+
+    describe('code', () => {
+      it('explains that a token is needed, without searching or offering a retry', async () => {
+        render(<SearchPage />)
+        chooseType('code')
+        typeQuery('useState')
+        await flush()
+
+        expect(search).not.toHaveBeenCalled()
+        expect(screen.getByRole('alert').textContent).toContain('Code search needs a GitHub token')
+        expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull()
+      })
+
+      it('searches with the token, asking for the matching fragments', async () => {
+        setGitHubToken('ghp_mine')
+        search.mockResolvedValue({
+          total_count: 1,
+          incomplete_results: false,
+          items: [
+            {
+              name: 'index.ts',
+              path: 'src/index.ts',
+              html_url: 'https://github.com/o/r/blob/main/src/index.ts',
+              repository: {
+                full_name: 'o/r',
+                html_url: 'https://github.com/o/r',
+                owner: { avatar_url: 'https://avatars.githubusercontent.com/u/1' },
+              },
+              text_matches: [
+                { property: 'content', fragment: 'const [a, b] = useState()', matches: [{ indices: [15, 23] }] },
+              ],
+            },
+          ],
+        } as never)
+        window.history.replaceState(null, '', '/?type=code&q=useState')
+        render(<SearchPage />)
+        await flush(0)
+
+        expect(search).toHaveBeenLastCalledWith(
+          'code',
+          { q: 'useState', per_page: 20, page: 1 },
+          expect.objectContaining({ token: 'ghp_mine', textMatch: true }),
+        )
+        expect(screen.getByText(/^1 file$/)).toBeTruthy()
+        expect(screen.getByRole('link', { name: 'src/index.ts' })).toBeTruthy()
+        expect(screen.getByText('useState', { selector: 'mark' })).toBeTruthy()
+      })
+    })
+
+    describe('labels', () => {
+      const repoInput = () => screen.getByLabelText<HTMLInputElement>('Repository')
+      const label = {
+        id: 1,
+        name: 'bug',
+        color: 'd73a4a',
+        url: 'https://api.github.com/repos/vercel/next.js/labels/bug',
+        description: "Something isn't working",
+        default: true,
+      }
+
+      beforeEach(() => {
+        lookUpRepository.mockResolvedValue({ id: 70107786, full_name: 'vercel/next.js' } as never)
+        search.mockResolvedValue({ total_count: 1, incomplete_results: false, items: [label] } as never)
+      })
+
+      it('asks for a repository first', () => {
+        render(<SearchPage />)
+        chooseType('labels')
+
+        expect(repoInput()).toBeTruthy()
+        expect(screen.getByText(/enter a repository as owner\/name/i)).toBeTruthy()
+      })
+
+      it('points out a repository name that is not one', async () => {
+        render(<SearchPage />)
+        chooseType('labels')
+        fireEvent.change(repoInput(), { target: { value: 'not a repo' } })
+        typeQuery('bug')
+        await flush()
+
+        expect(screen.getByText(/is not a repository/)).toBeTruthy()
+        expect(lookUpRepository).not.toHaveBeenCalled()
+        expect(search).not.toHaveBeenCalled()
+      })
+
+      it('looks up the repository, then searches its labels', async () => {
+        render(<SearchPage />)
+        chooseType('labels')
+        fireEvent.change(repoInput(), { target: { value: 'https://github.com/vercel/next.js' } })
+        typeQuery('bug')
+        await flush()
+
+        expect(lookUpRepository).toHaveBeenCalledWith('vercel', 'next.js', expect.anything())
+        expect(search).toHaveBeenLastCalledWith(
+          'labels',
+          { q: 'bug', repository_id: 70107786, per_page: 20, page: 1 },
+          expect.anything(),
+        )
+        expect(window.location.search).toBe('?type=labels&repo=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js&q=bug')
+        expect(screen.getByRole('link', { name: 'bug' }).getAttribute('href')).toBe(
+          'https://github.com/vercel/next.js/labels/bug',
+        )
+        expect(screen.getByText('Default')).toBeTruthy()
+      })
+
+      it('does not look up the repository before there is a query', async () => {
+        window.history.replaceState(null, '', '/?type=labels&repo=vercel/next.js')
+        render(<SearchPage />)
+        await flush(0)
+
+        expect(repoInput().value).toBe('vercel/next.js')
+        expect(lookUpRepository).not.toHaveBeenCalled()
+      })
+
+      it('says when the repository cannot be found, and retries on demand', async () => {
+        lookUpRepository.mockRejectedValueOnce(
+          new GitHubApiError(404, null, null, 'Repository nobody/nothing not found'),
+        )
+        window.history.replaceState(null, '', '/?type=labels&repo=nobody/nothing&q=bug')
+        render(<SearchPage />)
+        await flush(0)
+
+        expect(screen.getByRole('alert').textContent).toContain('Repository nobody/nothing not found')
+        expect(search).not.toHaveBeenCalled()
+
+        fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+        await flush(0)
+        expect(search).toHaveBeenCalledTimes(1)
+      })
+
+      it('keeps the repository when switching away and back', async () => {
+        window.history.replaceState(null, '', '/?type=labels&repo=vercel/next.js&q=bug')
+        render(<SearchPage />)
+        await flush(0)
+
+        chooseType('issues')
+        expect(screen.queryByLabelText('Repository')).toBeNull()
+        chooseType('labels')
+        await flush(0)
+        expect(repoInput().value).toBe('vercel/next.js')
+        expect(new URLSearchParams(window.location.search).get('repo')).toBe('vercel/next.js')
+      })
     })
   })
 })

@@ -1,4 +1,4 @@
-import { RepositorySearch } from './components/RepositorySearch'
+import { SearchPage } from './components/SearchPage'
 import { TokenSettings } from './components/TokenSettings'
 
 function App() {
@@ -11,7 +11,7 @@ function App() {
         </div>
       </header>
       <main className="mx-auto max-w-3xl px-4 py-6">
-        <RepositorySearch />
+        <SearchPage />
       </main>
     </div>
   )

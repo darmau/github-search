@@ -1,15 +1,16 @@
 import { formatCount, formatDate } from '../lib/format'
 import type { RepositorySearchResultItem } from '../types/github'
+import { Avatar, Badge, ItemLink, ItemList } from './ItemList'
 
 const MAX_TOPICS = 5
 
 export function RepositoryList({ items }: { items: RepositorySearchResultItem[] }) {
   return (
-    <ul className="divide-y divide-gray-200 rounded-lg border border-gray-200 bg-white dark:divide-gray-800 dark:border-gray-800 dark:bg-gray-900">
+    <ItemList>
       {items.map((repo) => (
         <RepositoryItem key={repo.id} repo={repo} />
       ))}
-    </ul>
+    </ItemList>
   )
 }
 
@@ -18,24 +19,11 @@ function RepositoryItem({ repo }: { repo: RepositorySearchResultItem }) {
 
   return (
     <li className="flex gap-3 p-4">
-      {repo.owner && (
-        <img src={repo.owner.avatar_url} alt="" className="size-10 shrink-0 rounded-full bg-gray-100" />
-      )}
+      {repo.owner && <Avatar src={repo.owner.avatar_url} />}
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
-          <a
-            href={repo.html_url}
-            target="_blank"
-            rel="noreferrer"
-            className="font-semibold break-all text-blue-600 hover:underline dark:text-blue-400"
-          >
-            {repo.full_name}
-          </a>
-          {repo.archived && (
-            <span className="rounded-full border border-amber-300 px-2 text-xs text-amber-700 dark:border-amber-700 dark:text-amber-400">
-              Archived
-            </span>
-          )}
+          <ItemLink href={repo.html_url}>{repo.full_name}</ItemLink>
+          {repo.archived && <Badge tone="amber">Archived</Badge>}
         </div>
 
         {repo.description && (
