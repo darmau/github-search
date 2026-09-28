@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { GitHubApiError, searchGitHub, type SearchOptions } from '../api/github'
+import {
+  effectiveToken,
+  GitHubApiError,
+  MissingTokenError,
+  searchGitHub,
+  searchRequiresToken,
+  type SearchOptions,
+} from '../api/github'
 import {
   deleteCachedSearch,
   getCachedSearch,
@@ -40,7 +47,8 @@ interface Settled<TData> {
  * Successful results are cached for a few minutes (see `searchCache`), so
  * revisiting a page or query shows it instantly without spending rate limit.
  * A query GitHub is known to reject fails straight away with a
- * `SearchQueryError`, without a request. A rate limited search is retried
+ * `SearchQueryError`, and one that needs a token when there is none with a
+ * `MissingTokenError`, both without a request. A rate limited search is retried
  * automatically once the limit resets.
  *
  * @example
@@ -55,8 +63,11 @@ export function useGitHubSearch<T extends SearchType>(
   type TData = SearchEndpoints[T]['response']
 
   const q = params?.q.trim() ?? ''
-  const queryError = useMemo(() => (q ? validateSearchQuery(q) : null), [q])
-  const key = params && q && !queryError ? searchCacheKey(type, params, options) : null
+  const queryError = useMemo(() => (q ? validateSearchQuery(q, type) : null), [q, type])
+  const needsToken = params !== null && !effectiveToken(options.token) && searchRequiresToken(type, params)
+  const tokenError = useMemo(() => (needsToken ? new MissingTokenError(type) : null), [needsToken, type])
+  const inputError = queryError ?? (q ? tokenError : null)
+  const key = params && q && !inputError ? searchCacheKey(type, params, options) : null
   const [attempt, setAttempt] = useState(0)
   const [settled, setSettled] = useState<Settled<TData> | null>(null)
 
@@ -138,8 +149,8 @@ export function useGitHubSearch<T extends SearchType>(
   const cached = key !== null && !current ? peekCachedSearch<TData>(key) : undefined
 
   let state: SearchState<TData>
-  if (queryError) {
-    state = { status: 'error', data: undefined, error: queryError }
+  if (inputError) {
+    state = { status: 'error', data: undefined, error: inputError }
   } else if (key === null) {
     state = { status: 'idle', data: undefined, error: undefined }
   } else if (cached !== undefined) {

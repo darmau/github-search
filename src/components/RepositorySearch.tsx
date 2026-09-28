@@ -58,7 +58,7 @@ export function RepositorySearch() {
     { token: token ?? undefined },
   )
 
-  const quota = useSearchQuota('repositories', token ?? undefined)
+  const quota = useSearchQuota('search', token ?? undefined)
   const rateLimited = search.error instanceof GitHubApiError && search.error.rateLimit !== null
   // The rate limit error already says when searching resumes
   const quotaLow = quota !== undefined && !rateLimited && quota.remaining <= quota.limit * LOW_QUOTA_RATIO

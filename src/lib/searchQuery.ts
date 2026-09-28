@@ -1,3 +1,5 @@
+import type { SearchType } from '../types/github'
+
 /**
  * GitHub rejects longer queries with a 422. Operators and qualifiers don't
  * count towards the limit.
@@ -13,7 +15,15 @@ const TOKEN = /(?:[^\s"]+|"[^"]*"?)+/g
 // `key:value`, including exclusions such as `-language:go`
 const QUALIFIER = /^-?[A-Za-z][\w-]*:/
 
-export type SearchQueryProblem = 'too-long' | 'too-many-operators'
+export type SearchQueryProblem = 'too-long' | 'too-many-operators' | 'missing-text'
+
+const MESSAGES: Record<SearchQueryProblem, (actual: number, limit: number) => string> = {
+  'too-long': (actual, limit) =>
+    `Search text is too long: ${actual} characters, not counting qualifiers and operators (max ${limit})`,
+  'too-many-operators': (actual, limit) => `Too many AND / OR / NOT operators: ${actual} (max ${limit})`,
+  'missing-text': () =>
+    'Code search needs a search term besides qualifiers, e.g. useState language:typescript',
+}
 
 /** A query GitHub would reject, caught before spending a request on it */
 export class SearchQueryError extends Error {
@@ -22,11 +32,7 @@ export class SearchQueryError extends Error {
   readonly limit: number
 
   constructor(problem: SearchQueryProblem, actual: number, limit: number) {
-    super(
-      problem === 'too-long'
-        ? `Search text is too long: ${actual} characters, not counting qualifiers and operators (max ${limit})`
-        : `Too many AND / OR / NOT operators: ${actual} (max ${limit})`,
-    )
+    super(MESSAGES[problem](actual, limit))
     this.name = 'SearchQueryError'
     this.problem = problem
     this.actual = actual
@@ -39,7 +45,7 @@ export class SearchQueryError extends Error {
  * are vague: blocking a query GitHub would accept is worse than letting the
  * API reject one.
  */
-export function validateSearchQuery(q: string): SearchQueryError | null {
+export function validateSearchQuery(q: string, type?: SearchType): SearchQueryError | null {
   const tokens = q.match(TOKEN) ?? []
 
   const operators = tokens.filter((token) => OPERATORS.has(token)).length
@@ -47,9 +53,15 @@ export function validateSearchQuery(q: string): SearchQueryError | null {
     return new SearchQueryError('too-many-operators', operators, MAX_BOOLEAN_OPERATORS)
   }
 
-  const text = tokens.filter((token) => !OPERATORS.has(token) && !QUALIFIER.test(token)).join(' ')
+  const terms = tokens.filter((token) => !OPERATORS.has(token) && !QUALIFIER.test(token))
+  const text = terms.join(' ')
   if (text.length > MAX_QUERY_LENGTH) {
     return new SearchQueryError('too-long', text.length, MAX_QUERY_LENGTH)
+  }
+
+  // e.g. "language:go" alone. Other types accept a qualifier-only query.
+  if (type === 'code' && terms.length === 0) {
+    return new SearchQueryError('missing-text', 0, 1)
   }
 
   return null
