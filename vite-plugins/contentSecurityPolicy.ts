@@ -14,14 +14,16 @@ const POLICY = {
   'base-uri': ["'none'"],
   // The page has no forms; the shell reads commands in JS
   'form-action': ["'none'"],
+  'frame-ancestors': ["'none'"],
 }
 
 /**
- * Adds the policy as a <meta> tag to the built page. Build only: the dev
- * server relies on inline scripts and a WebSocket for HMR, which it blocks.
- *
- * A <meta> policy can't set frame-ancestors or reporting; send it as a
- * response header instead if the host allows that.
+ * Sends the policy as a response header, via a `_headers` file in the build
+ * that Cloudflare's static assets serve with every page. Not a <meta> tag:
+ * Cloudflare adds a nonce to a <meta> policy when it injects its own scripts,
+ * and mangles it on the way (Vite writes ' as &#39;, and it splits on the ;).
+ * A header also allows frame-ancestors. Build only: the dev server relies on
+ * inline scripts and a WebSocket for HMR, which the policy blocks.
  */
 export function contentSecurityPolicy(): Plugin {
   const content = Object.entries(POLICY)
@@ -31,9 +33,8 @@ export function contentSecurityPolicy(): Plugin {
   return {
     name: 'content-security-policy',
     apply: 'build',
-    transformIndexHtml: () => [
-      // Only content after the tag is covered, so it goes before any script
-      { tag: 'meta', attrs: { 'http-equiv': 'Content-Security-Policy', content }, injectTo: 'head-prepend' },
-    ],
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: '_headers', source: `/*\n  Content-Security-Policy: ${content}\n` })
+    },
   }
 }

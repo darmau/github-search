@@ -12,6 +12,8 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['src/test/setup.ts'],
+    // Tests run without a token, whatever .env.local holds
+    env: { VITE_GITHUB_TOKEN: '' },
     coverage: {
       include: ['src/**/*.{ts,tsx}', 'vite-plugins/**/*.ts'],
       // Test helpers, type-only modules and the entry point have no logic worth measuring

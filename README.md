@@ -59,6 +59,6 @@ typescript-eslint still needs.
 A token in `VITE_GITHUB_TOKEN` is bundled into the page, where anyone who loads it can read it. The build
 fails if a token would end up in the output. Set `ALLOW_BUNDLED_TOKEN=1` only for a private deployment.
 
-The production build also adds a Content Security Policy that only lets the page connect to
-`api.github.com`. It is set in a `<meta>` tag; send it as a response header too if your host allows, since
-a `<meta>` policy can't set `frame-ancestors`.
+The production build also writes a Content Security Policy that only lets the page connect to
+`api.github.com`. It goes in `dist/_headers`, which Cloudflare sends as a response header; on another host,
+send the same header yourself.
