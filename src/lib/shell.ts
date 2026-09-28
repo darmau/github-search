@@ -7,8 +7,8 @@ export const C = {
   bg: '#070a08',
   fg: '#cfe8d6',
   green: '#4dff9a',
-  dim: '#5c7a66',
-  faint: '#35503f',
+  dim: '#7a9a84',
+  faint: '#608069',
   amber: '#ffb547',
   cyan: '#7fd1ff',
   desc: '#9db8a6',
@@ -69,7 +69,7 @@ export const COMMAND_FOR: { readonly [T in SearchType]: string } = {
 export const COMMANDS = [
   ...Object.keys(SEARCH_COMMANDS),
   'next', 'prev', 'page', 'sort', 'ls', 'view', 'open', 'yank',
-  'token', 'rate', 'history', 'clear', 'help', 'whoami',
+  'token', 'rate', 'history', 'clear', 'help', 'whoami', 'crt',
 ]
 
 export const ALIASES: Record<string, string> = {
@@ -400,6 +400,7 @@ export function completionCandidates(before: string, { ranks, sortType }: Comple
   else if (command === 'sort' && words.length === 2) candidates = sortType ? SORT_KEYS[sortType] : []
   else if (command === 'sort' && words.length === 3) candidates = ['asc', 'desc']
   else if (command === 'token' && words.length === 2) candidates = ['set', 'rm']
+  else if (command === 'crt' && words.length === 2) candidates = ['on', 'off']
   else if (command === 'help') candidates = COMMANDS
   else if (['open', 'view', 'yank'].includes(command)) candidates = ranks
   else if (type && /^language:/i.test(word)) candidates = LANGS.map((l) => `language:${l}`)

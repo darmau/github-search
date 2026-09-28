@@ -123,6 +123,7 @@ const OTHER_HELP: [string, string][] = [
   ['ls', 'reprint last results (no quota)'],
   ['view · open · yank [#]', 'preview · open on GitHub · copy'],
   ['token [set <pat> | rm]', 'raise the limit from 10 to 30/min'],
+  ['crt [on | off]', 'scanlines and glow'],
   ['rate · history · whoami · clear', ''],
 ]
 
@@ -191,6 +192,9 @@ export function capHint(prefix: string, ctx: SearchContext): Line {
     ]),
   ])
 }
+
+/** Characters per line the mobile layout is laid out for */
+const MOBILE_COLUMNS = 42
 
 export interface SearchView {
   layout: Layout
@@ -307,12 +311,13 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
       return
     }
 
-    const width = desktop ? 100 : 44
+    // 13px text fits about 43 columns on a 360px phone; the rank takes 7
+    const width = desktop ? 100 : MOBILE_COLUMNS - indent.length
     push([
       mark,
       seg(desktop ? `${padStart(rank, 4)}   ` : `${padStart(rank, 3)} `, on ? C.green : C.dim),
       seg(r.prefix, C.dim),
-      title(desktop ? r.title : truncate(r.title, Math.max(12, 40 - r.prefix.length))),
+      title(desktop ? r.title : truncate(r.title, Math.max(12, width - r.prefix.length))),
       ...r.badges,
     ], options)
     push([seg(indent), ...r.meta], options)

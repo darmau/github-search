@@ -13,6 +13,11 @@ body {
   text-shadow: 0 0 5px rgba(77, 255, 154, 0.16);
 }
 
+/* `crt off`, and always on phones */
+.dowse-flat {
+  text-shadow: none;
+}
+
 .dowse a {
   color: #4dff9a;
 }

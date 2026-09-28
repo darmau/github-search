@@ -204,6 +204,22 @@ describe('Terminal', () => {
     expect(text()).not.toContain('wait for the current search')
   })
 
+  it('turns the crt effect off and remembers it', async () => {
+    const { unmount } = render(<Terminal />)
+    expect(document.querySelector('.dowse-crt')).not.toBeNull()
+
+    await type('crt off')
+    expect(document.querySelector('.dowse-crt')).toBeNull()
+    expect(document.querySelector('.dowse-flat')).not.toBeNull()
+
+    unmount()
+    render(<Terminal />)
+    expect(document.querySelector('.dowse-crt')).toBeNull()
+
+    await type('crt on')
+    expect(document.querySelector('.dowse-crt')).not.toBeNull()
+  })
+
   it('explains unknown commands and suggests a fix', async () => {
     render(<Terminal />)
 

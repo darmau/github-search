@@ -67,6 +67,25 @@ const TYPE_MS_PER_LINE = 11
 const TYPE_OUT_MS = 3200
 const MAX_ENTRIES = 60
 const MAX_HISTORY = 50
+const CRT_STORAGE_KEY = 'dowse:crt'
+
+/** Scanlines and glow, on unless turned off with `crt off` */
+function loadCrt(): boolean {
+  try {
+    return localStorage.getItem(CRT_STORAGE_KEY) !== 'off'
+  } catch {
+    return true
+  }
+}
+
+function saveCrt(on: boolean) {
+  try {
+    if (on) localStorage.removeItem(CRT_STORAGE_KEY)
+    else localStorage.setItem(CRT_STORAGE_KEY, 'off')
+  } catch {
+    // Still applies for this visit
+  }
+}
 
 type PickAction = 'up' | 'down' | 'open' | 'yank' | 'next' | 'prev' | 'quit'
 /**
@@ -143,6 +162,7 @@ export function Terminal() {
   }))
   const [now, setNow] = useState(() => Date.now())
   const [today] = useState(() => new Date().toISOString().slice(0, 10))
+  const [crt, setCrt] = useState(loadCrt)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -505,6 +525,25 @@ export function Terminal() {
             print(help.lines, help.mobile)
             break
           }
+          case 'crt': {
+            const [value] = args
+            if (value !== undefined && value !== 'on' && value !== 'off') {
+              usage('crt [on | off]')
+              break
+            }
+            const on = value === undefined ? crt : value === 'on'
+            if (on !== crt) {
+              setCrt(on)
+              saveCrt(on)
+            }
+            print([line([
+              seg('crt ', C.dim),
+              seg(on ? 'on' : 'off', C.white),
+              seg(on ? ' · scanlines and glow · ' : ' · plain text · ', C.dim),
+              seg(`crt ${on ? 'off' : 'on'}`, C.green, { action: { type: 'run', command: `crt ${on ? 'off' : 'on'}` } }),
+            ])])
+            break
+          }
           case 'clear':
             setS((prev) => ({ ...prev, ...patch, entries: [] }))
             return
@@ -770,20 +809,21 @@ export function Terminal() {
     </div>
   )
 
-  const crt = (
+  const overlay = crt ? (
     <>
       <div aria-hidden className="dowse-scan" />
       <div aria-hidden className="dowse-crt" />
     </>
-  )
+  ) : null
 
   if (layout === 'm') {
     const keys: [string, Key][] = pickOn
       ? [['↑', 'pick:up'], ['↓', 'pick:down'], ['OPEN ↗', 'pick:open'], ['YANK', 'pick:yank'], ['PREV', 'pick:prev'], ['NEXT', 'pick:next'], ['QUIT', 'pick:quit']]
       : [['TAB', 'tab'], ['↑', 'up'], ['↓', 'down'], ['ESC', 'esc'], ['^C', 'ctrlc'], ['^L', 'ctrll'], ['-', 'ins:-'], ['>', 'ins:>'], [':', 'ins::'], ['/', 'ins:/'], ['↵', 'enter']]
     return (
-      <div className="dowse relative flex h-dvh flex-col overflow-hidden" style={{ fontSize: 11, lineHeight: 1.5 }}>
-        {crt}
+      // No glow on phones, where it smears small text
+      <div className="dowse dowse-flat relative flex h-dvh flex-col overflow-hidden" style={{ fontSize: 13, lineHeight: 1.5 }}>
+        {overlay}
         <div className="flex flex-none items-center gap-2 px-3.5 pb-2" style={{ borderBottom: `1px solid ${C.border}`, paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
           <span style={{ color: C.green, fontWeight: 700 }}>dowse</span>
           <span style={{ color: C.dim }}>— tty0</span>
@@ -819,8 +859,8 @@ export function Terminal() {
   }
 
   return (
-    <div className="dowse relative flex h-dvh flex-col overflow-hidden" style={{ fontSize: 13, lineHeight: 1.55 }}>
-      {crt}
+    <div className={`dowse relative flex h-dvh flex-col overflow-hidden${crt ? '' : ' dowse-flat'}`} style={{ fontSize: 13, lineHeight: 1.55 }}>
+      {overlay}
       <div className="flex h-8.5 flex-none items-center gap-2 px-3.5 text-xs" style={{ background: C.bar, borderBottom: `1px solid ${C.border}` }}>
         <div aria-hidden className="flex gap-1.75">
           {[0, 1, 2].map((i) => <div key={i} className="size-2.75 rounded-full" style={{ background: '#26382d' }} />)}
@@ -831,6 +871,7 @@ export function Terminal() {
       <div className="flex min-h-0 flex-1">
         {scrollback}
         <Preview
+          glow={crt}
           ctx={s.ctx}
           view={selected}
           rank={selectedRank}
@@ -928,6 +969,7 @@ const CHEAT: [string, string][] = [
 const NO_SIGNAL = '   ┌──────────────┐\n   │  ·  ·  ·  ·  │\n   │   NO SIGNAL  │\n   │  ·  ·  ·  ·  │\n   └──────────────┘'
 
 interface PreviewProps {
+  glow: boolean
   ctx: SearchContext | null
   view: ResultView | undefined
   rank: number
@@ -938,7 +980,7 @@ interface PreviewProps {
 }
 
 /** The tmux-style right pane: compiled query and the selected result */
-function Preview({ ctx, view, rank, yanked, onOpen, onYank, act }: PreviewProps) {
+function Preview({ glow, ctx, view, rank, yanked, onOpen, onYank, act }: PreviewProps) {
   const label = (text: string) => <span style={{ color: C.dim }}>{text}</span>
   const value = (text: string | number) => <span style={{ color: C.white }}>{text}</span>
 
@@ -970,7 +1012,7 @@ function Preview({ ctx, view, rank, yanked, onOpen, onYank, act }: PreviewProps)
                 color: view.titleColor ?? C.green,
                 background: view.titleBg,
                 fontWeight: 700,
-                textShadow: view.titleBg ? 'none' : '0 0 10px rgba(77,255,154,.5)',
+                textShadow: glow && !view.titleBg ? '0 0 10px rgba(77,255,154,.5)' : 'none',
               }}
             >
               {view.title}
