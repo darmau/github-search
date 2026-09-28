@@ -96,7 +96,7 @@ const PICK_KEYS: Record<string, PickAction> = {
   y: 'yank', n: 'next', p: 'prev', q: 'quit', Escape: 'quit',
 }
 
-/** ghs: a shell for GitHub search */
+/** dowse: a shell for GitHub search */
 export function Terminal() {
   // A saved token takes over from the build-time one
   const savedToken = useGitHubToken() ?? undefined
@@ -676,7 +676,7 @@ export function Terminal() {
         <div><Segs segs={pickHint} act={act} /></div>
       ) : (
         <>
-          <span style={{ color: C.green, fontWeight: 700 }}>ghs</span>
+          <span style={{ color: C.green, fontWeight: 700 }}>dowse</span>
           {layout === 'd' && <span style={{ color: C.dim }}> ~/search</span>}
           <span style={{ color: C.green }}> ❯ </span>
           <div className="relative min-w-0 flex-1" style={layout === 'm' ? { whiteSpace: 'pre-wrap', wordBreak: 'break-all' } : undefined}>
@@ -711,7 +711,7 @@ export function Terminal() {
     <div
       ref={scrollRef}
       onClick={focusInput}
-      className="ghs-scroll min-h-0 flex-1 cursor-text overflow-y-auto"
+      className="dowse-scroll min-h-0 flex-1 cursor-text overflow-y-auto"
       style={{ padding: layout === 'd' ? '14px 20px 18px' : '10px 12px 12px' }}
     >
       {lines.map((l, i) => (
@@ -730,8 +730,8 @@ export function Terminal() {
 
   const crt = (
     <>
-      <div aria-hidden className="ghs-scan" />
-      <div aria-hidden className="ghs-crt" />
+      <div aria-hidden className="dowse-scan" />
+      <div aria-hidden className="dowse-crt" />
     </>
   )
 
@@ -740,16 +740,16 @@ export function Terminal() {
       ? [['↑', 'pick:up'], ['↓', 'pick:down'], ['OPEN ↗', 'pick:open'], ['YANK', 'pick:yank'], ['PREV', 'pick:prev'], ['NEXT', 'pick:next'], ['QUIT', 'pick:quit']]
       : [['TAB', 'tab'], ['↑', 'up'], ['↓', 'down'], ['ESC', 'esc'], ['^C', 'ctrlc'], ['^L', 'ctrll'], ['-', 'ins:-'], ['>', 'ins:>'], [':', 'ins::'], ['/', 'ins:/'], ['↵', 'enter']]
     return (
-      <div className="ghs relative flex h-dvh flex-col overflow-hidden" style={{ fontSize: 11, lineHeight: 1.5 }}>
+      <div className="dowse relative flex h-dvh flex-col overflow-hidden" style={{ fontSize: 11, lineHeight: 1.5 }}>
         {crt}
         <div className="flex flex-none items-center gap-2 px-3.5 pb-2" style={{ borderBottom: `1px solid ${C.border}`, paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
-          <span style={{ color: C.green, fontWeight: 700 }}>ghs</span>
+          <span style={{ color: C.green, fontWeight: 700 }}>dowse</span>
           <span style={{ color: C.dim }}>— tty0</span>
           <span className="ml-auto">{quotaText}</span>
         </div>
         {scrollback}
         <div
-          className="ghs-scroll flex flex-none gap-1.5 overflow-x-auto px-2.5 pt-2"
+          className="dowse-scroll flex flex-none gap-1.5 overflow-x-auto px-2.5 pt-2"
           style={{ borderTop: `1px solid ${C.border}`, background: C.bar, paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
         >
           {keys.map(([label, key]) => {
@@ -777,13 +777,13 @@ export function Terminal() {
   }
 
   return (
-    <div className="ghs relative flex h-dvh flex-col overflow-hidden" style={{ fontSize: 13, lineHeight: 1.55 }}>
+    <div className="dowse relative flex h-dvh flex-col overflow-hidden" style={{ fontSize: 13, lineHeight: 1.55 }}>
       {crt}
       <div className="flex h-8.5 flex-none items-center gap-2 px-3.5 text-xs" style={{ background: C.bar, borderBottom: `1px solid ${C.border}` }}>
         <div aria-hidden className="flex gap-1.75">
           {[0, 1, 2].map((i) => <div key={i} className="size-2.75 rounded-full" style={{ background: '#26382d' }} />)}
         </div>
-        <span className="flex-1 text-center" style={{ color: C.dim }}>ghs — {hasToken ? 'token' : 'guest'}@tty0</span>
+        <span className="flex-1 text-center" style={{ color: C.dim }}>dowse — {hasToken ? 'token' : 'guest'}@tty0</span>
         {quotaText}
       </div>
       <div className="flex min-h-0 flex-1">
@@ -802,7 +802,7 @@ export function Terminal() {
         <span className="flex h-6 items-center px-2.5 font-bold" style={{ background: '#051008', color: C.green }}>
           {pickOn ? 'PICK' : s.focused ? 'INSERT' : 'IDLE'}
         </span>
-        <span className="px-2.5">[ghs] 0:search* 1:preview</span>
+        <span className="px-2.5">[dowse] 0:search* 1:preview</span>
         <span className="ml-auto px-2.5">
           {s.ctx && `${s.ctx.type} · ${sortLabel(s.ctx)} · ${live?.data ? `p${s.ctx.page}/${totalPages(live)} · ` : ''}`}
           quota {remaining}/{limit}
@@ -851,7 +851,7 @@ function Cursor({ on, caret, ch }: { on: boolean; caret: number; ch: string }) {
   return (
     <span
       aria-hidden
-      className={on ? 'ghs-cursor' : undefined}
+      className={on ? 'dowse-cursor' : undefined}
       style={{
         position: 'absolute',
         top: 0,
@@ -901,7 +901,7 @@ function Preview({ ctx, view, rank, yanked, onOpen, onYank, act }: PreviewProps)
   const value = (text: string | number) => <span style={{ color: C.white }}>{text}</span>
 
   return (
-    <div className="ghs-scroll flex w-[420px] flex-none flex-col gap-3.5 overflow-y-auto" style={{ borderLeft: `1px solid ${C.border}`, padding: '14px 20px 18px' }}>
+    <div className="dowse-scroll flex w-[420px] flex-none flex-col gap-3.5 overflow-y-auto" style={{ borderLeft: `1px solid ${C.border}`, padding: '14px 20px 18px' }}>
       <div style={{ color: C.faint }}>── 1:preview ──────────────────────────</div>
       {ctx && (
         <div className="text-xs">
@@ -969,7 +969,7 @@ function Preview({ ctx, view, rank, yanked, onOpen, onYank, act }: PreviewProps)
             </span>
             <span className="flex-none" style={{ color: yanked ? C.green : C.dim }}>{yanked ? 'copied ✓' : 'y yank'}</span>
           </button>
-          <button type="button" onClick={onOpen} className="ghs-open cursor-pointer p-[9px] text-center">
+          <button type="button" onClick={onOpen} className="dowse-open cursor-pointer p-[9px] text-center">
             [ ↵ open on github ↗ ]
           </button>
         </>

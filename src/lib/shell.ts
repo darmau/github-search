@@ -2,7 +2,7 @@ import type { SearchEndpoints, SearchOrder, SearchType } from '../types/github'
 import { formatCount } from './format'
 import { parseRepositoryName } from './repositoryName'
 
-// Phosphor palette of the ghs terminal
+// Phosphor palette of the dowse terminal
 export const C = {
   bg: '#070a08',
   fg: '#cfe8d6',

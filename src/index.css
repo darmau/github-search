@@ -1,28 +1,28 @@
 @import "tailwindcss";
 
-/* ghs terminal. JetBrains Mono is used when installed; the CSP keeps web fonts out */
+/* dowse terminal. JetBrains Mono is used when installed; the CSP keeps web fonts out */
 body {
   margin: 0;
   background: #070a08;
 }
 
-.ghs {
+.dowse {
   background: #070a08;
   color: #cfe8d6;
   font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   text-shadow: 0 0 5px rgba(77, 255, 154, 0.16);
 }
 
-.ghs a {
+.dowse a {
   color: #4dff9a;
 }
 
-.ghs-scroll {
+.dowse-scroll {
   scrollbar-width: thin;
   scrollbar-color: #1d3326 transparent;
 }
 
-.ghs-crt {
+.dowse-crt {
   position: absolute;
   inset: 0;
   z-index: 50;
@@ -33,7 +33,7 @@ body {
     radial-gradient(ellipse at center, transparent 60%, rgba(0, 0, 0, 0.65) 100%);
 }
 
-.ghs-scan {
+.dowse-scan {
   position: absolute;
   left: 0;
   right: 0;
@@ -41,30 +41,30 @@ body {
   z-index: 49;
   pointer-events: none;
   background: linear-gradient(transparent, rgba(77, 255, 154, 0.045), transparent);
-  animation: ghs-scan 9s linear infinite;
+  animation: dowse-scan 9s linear infinite;
 }
 
-.ghs-cursor {
-  animation: ghs-blink 1.05s steps(1) infinite;
+.dowse-cursor {
+  animation: dowse-blink 1.05s steps(1) infinite;
 }
 
-.ghs-open {
+.dowse-open {
   border: 1px solid #4dff9a;
   color: #4dff9a;
 }
 
-.ghs-open:hover {
+.dowse-open:hover {
   background: #4dff9a;
   color: #051008;
 }
 
-@keyframes ghs-blink {
+@keyframes dowse-blink {
   50% {
     opacity: 0;
   }
 }
 
-@keyframes ghs-scan {
+@keyframes dowse-scan {
   from {
     top: -160px;
   }
@@ -74,10 +74,10 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ghs-scan {
+  .dowse-scan {
     display: none;
   }
-  .ghs-cursor {
+  .dowse-cursor {
     animation: none;
   }
 }

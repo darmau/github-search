@@ -55,11 +55,11 @@ export function spinner(now: number): string {
 }
 
 const LOGO = [
-  '  ____  _   _  ____  ',
-  ' / ___|| | | |/ ___| ',
-  '| |  _ | |_| |\\___ \\ ',
-  '| |_| ||  _  | ___) |',
-  ' \\____||_| |_||____/ ',
+  ' ____    ___  __        __ ____   _____ ',
+  '|  _ \\  / _ \\ \\ \\      / // ___| | ____|',
+  '| | | || | | | \\ \\ /\\ / / \\___ \\ |  _|  ',
+  '| |_| || |_| |  \\ V  V /   ___) || |___ ',
+  '|____/  \\___/    \\_/\\_/   |____/ |_____|',
 ]
 
 export const TOKEN_HINT = seg('token set <pat>', C.green, { action: { type: 'fill', text: 'token set ' } })
@@ -68,7 +68,7 @@ export function motdLines(hasToken: boolean, date: string): Line[] {
   return [
     ...LOGO.map((l) => line([seg(l, C.green, { bold: true })])),
     line([]),
-    line([seg('ghs', C.white, { bold: true }), seg(` — github search shell · ${hasToken ? 'token' : 'guest'}@tty0 · ${date}`, C.dim)]),
+    line([seg('dowse', C.white, { bold: true }), seg(` — github search shell · ${hasToken ? 'token' : 'guest'}@tty0 · ${date}`, C.dim)]),
     hasToken
       ? line([seg('[ ok ] ', C.green), seg('token in use · 30 searches/min · code search on', C.desc)])
       : line([seg('[warn] ', C.amber), seg('no token · 10 searches/min · no code search · ', C.desc), TOKEN_HINT]),
@@ -94,13 +94,13 @@ export function motdLines(hasToken: boolean, date: string): Line[] {
 export function commandLine(text: string, layout: Layout, suffix?: string): Line {
   const prompt =
     layout === 'm'
-      ? [seg('ghs', C.green, { bold: true }), seg(' ❯ ', C.green)]
-      : [seg('ghs', C.green, { bold: true }), seg(' ~/search ', C.dim), seg('❯ ', C.green)]
+      ? [seg('dowse', C.green, { bold: true }), seg(' ❯ ', C.green)]
+      : [seg('dowse', C.green, { bold: true }), seg(' ~/search ', C.dim), seg('❯ ', C.green)]
   return line([...prompt, ...highlight(text), ...(suffix ? [seg(suffix, C.dim)] : [])])
 }
 
 export function errorLine(message: string): Line {
-  return line([seg('ghs: ', C.red, { bold: true }), seg(message, C.red)])
+  return line([seg('dowse: ', C.red, { bold: true }), seg(message, C.red)])
 }
 
 /** [usage, description, flags] */
