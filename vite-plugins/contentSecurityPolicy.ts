@@ -1,8 +1,8 @@
 import type { Plugin } from 'vite'
 
 /**
- * Where the page may load from and send data to. The token sits in
- * localStorage, so if a script were ever injected it could read it; this
+ * Where the page may load from and send data to. A build-time token is in
+ * the bundle, so if a script were ever injected it could read it; this
  * keeps it from being sent anywhere but api.github.com.
  */
 const POLICY = {

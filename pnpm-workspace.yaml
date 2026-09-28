@@ -1,0 +1,4 @@
+# Wrangler needs these install scripts: they set up the esbuild and workerd binaries
+allowBuilds:
+  esbuild: true
+  workerd: true
