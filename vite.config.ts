@@ -12,5 +12,10 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.test.{ts,tsx}'],
     setupFiles: ['src/test/setup.ts'],
+    coverage: {
+      include: ['src/**/*.{ts,tsx}', 'vite-plugins/**/*.ts'],
+      // Test helpers, type-only modules and the entry point have no logic worth measuring
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/test/**', 'src/types/**', 'src/main.tsx', 'src/vite-env.d.ts'],
+    },
   },
 })
