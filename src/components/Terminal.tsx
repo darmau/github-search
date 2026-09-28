@@ -8,58 +8,36 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from 'react'
-import {
-  effectiveToken,
-  getRepository,
-  GitHubApiError,
-  SEARCH_MAX_RESULTS,
-  searchGitHub,
-  searchResource,
-} from '../api/github'
+import { effectiveToken, getRepository, GitHubApiError, searchGitHub, searchResource } from '../api/github'
 import { getCachedSearch, searchCacheKey, setCachedSearch } from '../api/searchCache'
 import { setGitHubToken, useGitHubToken } from '../hooks/useGitHubToken'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useSearchQuota } from '../hooks/useSearchQuota'
-import { formatNumber } from '../lib/format'
-import { getTotalPages } from '../lib/pagination'
 import { parseRepositoryName } from '../lib/repositoryName'
-import { validateSearchQuery } from '../lib/searchQuery'
 import { SEARCH_TYPE_INFO } from '../lib/searchTypes'
 import {
   ALIASES,
   C,
-  COMMAND_FOR,
   commonPrefix,
   completionCandidates,
   completionSuffix,
-  DEFAULT_PAGE_SIZE,
   EXAMPLES,
-  FLAGS,
   formatCountdown,
   highlight,
-  isSortKey,
   line,
   looksLikeToken,
-  maskSecret,
   maskToken,
-  padStart,
-  parseSearch,
   searchTypeOf,
   seg,
-  SORT_KEYS,
   sortLabel,
-  suggestCommand,
   toCommand,
   toSearchParams,
   tokenize,
-  USAGE,
   type Line,
   type SearchContext,
-  type Seg,
   type ShellAction,
 } from '../lib/shell'
 import {
-  capHint,
   latestAnnouncement,
   commandLine,
   errorLine,
@@ -72,17 +50,42 @@ import {
   type Layout,
   type SearchEntry,
 } from '../lib/shellOutput'
+import {
+  crtLines,
+  didYouMeanLines,
+  exitLines,
+  historyLines,
+  noResultsError,
+  openLines,
+  pickedIndex,
+  rateLines,
+  refused,
+  resorted,
+  searchFromArgs,
+  searchHelpLines,
+  targetPage,
+  tokenRemovedLines,
+  tokenSavedLines,
+  tokenStatusLines,
+  usageLine,
+  viewLines,
+  whoamiLines,
+  yankLines,
+  type Refusal,
+} from '../lib/shellCommands'
 import { describeResult, type AnySearchResponse, type ResultView } from '../lib/shellResults'
+import { Announcer } from './Announcer'
+import { MobileKeys, type Key, type PickAction } from './MobileKeys'
+import { Preview } from './Preview'
+import { Cursor, Segs } from './Segs'
 import { commandFromUrl, loadCrt, loadHistory, saveCrt, saveHistory, urlWithCommand } from '../lib/shellSession'
 
-const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new'
 /** Lines of output typed out per millisecond, roughly */
 const TYPE_MS_PER_LINE = 11
 const TYPE_OUT_MS = 3200
 const MAX_ENTRIES = 60
 const MAX_HISTORY = 50
 
-type PickAction = 'up' | 'down' | 'open' | 'yank' | 'next' | 'prev' | 'quit'
 /**
  * Which keys pick mode takes from the prompt. It comes up by itself when
  * results land, so at first it only takes the arrows and esc, and letters
@@ -90,7 +93,6 @@ type PickAction = 'up' | 'down' | 'open' | 'yank' | 'next' | 'prev' | 'quit'
  * hands over the letter keys too.
  */
 type PickKeys = 'arrows' | 'enter' | 'all'
-type Key = 'enter' | 'tab' | 'up' | 'down' | 'esc' | 'ctrlc' | 'ctrll' | `ins:${string}` | `pick:${PickAction}`
 
 interface ShellState {
   entries: Entry[]
@@ -319,9 +321,14 @@ export function Terminal() {
     const patch: Partial<ShellState> = { history, historyIndex: null, pick: false, pickKeys }
     let launch: SearchEntry | null = null
 
-    const print = (lines: Line[], mobile?: Line[]) => out.push({ kind: 'lines', id: newId(), lines, mobile, at })
-    const fail = (message: string) => print([errorLine(message)])
-    const usage = (u: string) => print([line([seg('usage: ', C.dim), ...highlight(u)])])
+    const print = (lines: Line[], mobile?: Line[]) => {
+      if (lines.length) out.push({ kind: 'lines', id: newId(), lines, mobile, at })
+    }
+    const fail = (refusal: Refusal | string) => {
+      const { error, more = [] } = typeof refusal === 'string' ? { error: refusal } : refusal
+      print([errorLine(error)])
+      print(more)
+    }
     const search = (ctx: SearchContext, done?: SearchEntry) => {
       launch = done
         ? { ...done, id: newId(), ctx, at, cached: true }
@@ -334,322 +341,130 @@ export function Terminal() {
     // The results on screen, for commands that act on them
     const onScreen = (): SearchEntry | null => {
       if (live?.status === 'done' && live.data) return live
-      fail(
-        live?.status === 'loading'
-          ? 'wait for the current search to finish'
-          : live?.status === 'limited'
-            ? 'rate limited — the search runs again once the limit resets'
-            : live?.status === 'error'
-              ? 'the last search failed — run a search first'
-              : 'no results on screen — run a search first',
-      )
+      fail(noResultsError(live?.status))
       return null
     }
-    const pickItem = (arg: string | undefined) => {
-      const entry = onScreen()
-      if (!entry?.data?.items.length) {
-        if (entry) fail('no results on screen')
-        return null
-      }
-      const list = entry.data.items
-      const offset = pageOffset(entry.ctx)
-      const index = arg === undefined ? Math.min(s.sel, list.length - 1) : parseInt(arg, 10) - offset - 1
-      if (!(index >= 0 && index < list.length)) {
-        fail(`#${arg} is not on this page (${offset + 1}–${offset + list.length})`)
-        return null
-      }
-      return { view: describeResult(entry.ctx, list[index], at), index }
-    }
 
-    if (text) {
-      const [first, ...args] = tokenize(text)
-      const command = ALIASES[first] ?? first
-      const type = searchTypeOf(command)
-      if (type) {
-        const parsed = parseSearch(type, args, at)
-        const invalid = 'error' in parsed ? parsed.error : validateSearchQuery(parsed.q, type)?.message
-        if (invalid || 'error' in parsed) {
-          fail(`${command}: ${invalid}`)
-          usage(USAGE[type])
-        } else {
-          const perPage = parsed.perPage ?? s.ctx?.perPage ?? DEFAULT_PAGE_SIZE
-          const lastPage = getTotalPages(SEARCH_MAX_RESULTS, perPage)
-          if ((parsed.page ?? 1) > lastPage) {
-            fail(
-              `${command}: github serves only the first ${formatNumber(SEARCH_MAX_RESULTS)} results, so at most --page ${lastPage} with --limit ${perPage}`,
-            )
-          } else {
-            search({
-              type,
-              q: parsed.q,
-              sort: parsed.sort ?? 'best',
-              order: parsed.order ?? 'desc',
-              perPage,
-              page: parsed.page ?? 1,
-              repo: parsed.repo,
-              mode: parsed.mode,
-            })
-          }
+    const [first, ...args] = text ? tokenize(text) : ['']
+    const command = ALIASES[first] ?? first
+    const type = searchTypeOf(command)
+    if (!text) {
+      // A blank line, as in any shell
+    } else if (type) {
+      const ctx = searchFromArgs(command, type, args, at, s.ctx?.perPage)
+      if (refused(ctx)) fail(ctx)
+      else search(ctx)
+    } else {
+      switch (command) {
+        case 'next':
+        case 'prev':
+        case 'page': {
+          const entry = onScreen()
+          if (!entry) break
+          const page = targetPage(command, args[0], entry)
+          if (typeof page === 'number') search({ ...entry.ctx, page })
+          else fail(page)
+          break
         }
-      } else {
-        switch (command) {
-          case 'next':
-          case 'prev':
-          case 'page': {
-            const entry = onScreen()
-            if (!entry) break
-            const pages = totalPages(entry)
-            const page = command === 'page' ? parseInt(args[0], 10) : entry.ctx.page + (command === 'next' ? 1 : -1)
-            if (!(page >= 1 && page <= pages)) {
-              fail(
-                command === 'page'
-                  ? `page: expected 1–${pages}`
-                  : `${command}: already on the ${page < 1 ? 'first' : 'last'} page (${entry.ctx.page}/${pages})`,
-              )
-              if (page > pages && (entry.data?.total_count ?? 0) > pages * entry.ctx.perPage) {
-                out.push({
-                  kind: 'lines',
-                  id: newId(),
-                  at,
-                  lines: [capHint('  github returns only the first 1,000 results — narrow with ', entry.ctx)],
-                })
-              }
-              break
-            }
-            search({ ...entry.ctx, page })
+        case 'sort': {
+          if (!s.ctx) {
+            fail('no previous search — run a search first')
             break
           }
-          case 'sort': {
-            if (!s.ctx) {
-              fail('no previous search — run a search first')
-              break
-            }
-            const keys = SORT_KEYS[s.ctx.type]
-            const [key, order = 'desc'] = args
-            if (keys.length === 1)
-              fail(`sort: ${SEARCH_TYPE_INFO[s.ctx.type].singular} search can only be ordered by best match`)
-            else if (!isSortKey(s.ctx.type, key)) fail(`sort: expected ${keys.join(' | ')}`)
-            else if (order !== 'asc' && order !== 'desc') fail('sort: order must be asc|desc')
-            else search({ ...s.ctx, sort: key, order, page: 1 })
+          const ctx = resorted(s.ctx, args)
+          if (refused(ctx)) fail(ctx)
+          else search(ctx)
+          break
+        }
+        case 'ls': {
+          const entry = onScreen()
+          if (entry) search(entry.ctx, entry)
+          break
+        }
+        case 'view':
+        case 'open':
+        case 'yank': {
+          const entry = onScreen()
+          if (!entry?.data) break
+          const index = pickedIndex(args[0], s.sel, entry)
+          if (typeof index !== 'number') {
+            fail(index)
             break
           }
-          case 'ls': {
-            const entry = onScreen()
-            if (entry) search(entry.ctx, entry)
-            break
+          const view = describeResult(entry.ctx, entry.data.items[index], at)
+          patch.sel = index
+          patch.pick = true
+          patch.pickKeys = withEnter(pickKeys)
+          if (command === 'view') print(viewLines(view))
+          else if (command === 'open') {
+            window.open(view.url, '_blank', 'noopener')
+            print(openLines(view))
+          } else {
+            copy(view.yank.text)
+            print(yankLines(view))
           }
-          case 'view':
-          case 'open':
-          case 'yank': {
-            const picked = pickItem(args[0])
-            if (!picked) break
-            const { view, index } = picked
-            patch.sel = index
-            patch.pick = true
-            patch.pickKeys = withEnter(pickKeys)
-            const name = view.prefix + view.title.trim()
-            if (command === 'view') {
-              print([line([seg('→ ', C.green), seg('previewing ', C.desc), seg(name, C.green, { bold: true })])])
-            } else if (command === 'open') {
-              window.open(view.url, '_blank', 'noopener')
-              print([line([seg('↗ ', C.green), seg('opening ', C.desc), seg(view.url, C.cyan, { underline: true })])])
-            } else {
-              copy(view.yank.text)
-              print(
-                view.yank.shell
-                  ? [
-                      line([seg('$ ', C.dim), seg(view.yank.shell, C.white)]),
-                      line([seg('  copied to clipboard — paste into your real shell', C.dim)]),
-                    ]
-                  : [line([seg(`copied ${view.yank.label} `, C.dim), seg(view.yank.text, C.white)])],
-              )
+          break
+        }
+        case 'token': {
+          const [sub, token] = args
+          if (sub === 'set') {
+            if (!token) fail('token set: missing token')
+            else if (!looksLikeToken(token))
+              fail("token: that doesn't look like a GitHub token (ghp_… or github_pat_…)")
+            else {
+              setGitHubToken(token)
+              print(tokenSavedLines(token))
             }
-            break
-          }
-          case 'token': {
-            if (args[0] === 'set') {
-              const token = args[1]
-              if (!token) fail('token set: missing token')
-              else if (!looksLikeToken(token))
-                fail("token: that doesn't look like a GitHub token (ghp_… or github_pat_…)")
-              else {
-                setGitHubToken(token)
-                print([
-                  line([
-                    seg('[ ok ] ', C.green),
-                    seg(`token ${maskSecret(token)} saved in this browser · limit 30/min`, C.desc),
-                  ]),
-                  line([
-                    seg('[info] ', C.cyan),
-                    seg("sent only to api.github.com. don't use a token with write access.", C.desc),
-                  ]),
-                ])
-              }
-              break
+          } else if (sub === 'rm') {
+            if (!savedToken) fail('token: none saved')
+            else {
+              setGitHubToken(null)
+              print(tokenRemovedLines(hasBuildToken()))
             }
-            if (args[0] === 'rm') {
-              if (!savedToken) fail('token: none saved')
-              else {
-                setGitHubToken(null)
-                print([
-                  line([
-                    seg('[ ok ] ', C.green),
-                    seg(
-                      `token removed${hasBuildToken() ? ' · using the build-time token' : ' · limit 10/min'}`,
-                      C.desc,
-                    ),
-                  ]),
-                ])
-              }
-              break
-            }
-            print(
-              hasToken
-                ? [
-                    line([
-                      seg('token ', C.dim),
-                      seg(savedToken ? maskSecret(savedToken) : 'from build', C.white),
-                      seg(' · 30 searches/min', C.dim),
-                      ...(savedToken
-                        ? [seg(' · ', C.dim), seg('token rm', C.green, { action: { type: 'fill', text: 'token rm' } })]
-                        : []),
-                    ]),
-                  ]
-                : [
-                    line([seg('no token · 10 searches/min · no code or semantic issue search', C.amber)]),
-                    line([
-                      seg('  create a fine-grained token with no extra permissions: ', C.dim),
-                      seg(NEW_TOKEN_URL.replace('https://', ''), C.cyan, {
-                        underline: true,
-                        action: { type: 'openUrl', url: NEW_TOKEN_URL },
-                      }),
-                    ]),
-                    line([
-                      seg('  then ', C.dim),
-                      seg('token set <pat>', C.green, { action: { type: 'fill', text: 'token set ' } }),
-                    ]),
-                  ],
-            )
-            break
-          }
-          case 'rate': {
-            const filled = Math.round((remaining / limit) * 20)
-            print([
-              line([
-                seg('quota  ', C.dim),
-                seg('█'.repeat(filled), remaining ? C.green : C.red),
-                seg('░'.repeat(20 - filled), C.faint),
-                seg(
-                  `  ${remaining}/${limit} left${quota ? ` · resets in ${formatCountdown(quota.resetAt.getTime() - at)}` : ''}`,
-                  C.desc,
-                ),
-              ]),
-              line([
-                seg('limit  ', C.dim),
-                seg(`${limit}/min · ${resource.replace('_', ' ')} · ${hasToken ? 'token' : 'anonymous'}`, C.desc),
-              ]),
-            ])
-            break
-          }
-          case 'history':
-            print(
-              history.length
-                ? history.map((h, i) =>
-                    line([
-                      seg(`${padStart(String(i + 1), 4)}  `, C.dim),
-                      ...highlight(h).map((x) => ({ ...x, action: { type: 'fill' as const, text: h } })),
-                    ]),
-                  )
-                : [line([seg('(empty)', C.dim)])],
-            )
-            break
-          case 'whoami':
-            print([
-              hasToken
-                ? line([seg('authenticated via token', C.desc), seg(` · ${limit} searches/min`, C.desc)])
-                : line([seg('guest', C.white), seg(` (anonymous) · ${limit} searches/min`, C.desc)]),
-            ])
-            break
-          case 'help': {
-            const topic = args[0] && searchTypeOf(args[0])
-            if (topic) {
-              const flags = Object.keys(FLAGS[topic]).filter((f) => f.startsWith('--'))
-              print([
-                line([
-                  seg(SEARCH_TYPE_INFO[topic].label, C.white, { bold: true }),
-                  seg(` — ${COMMAND_FOR[topic]}`, C.dim),
-                ]),
-                line([seg('usage: ', C.dim), ...highlight(USAGE[topic])]),
-                line([
-                  seg('flags: ', C.dim),
-                  seg([...flags, '--sort', '--order', '--limit', '--page'].join(' '), C.cyan),
-                ]),
-                line([seg('sort:  ', C.dim), seg(SORT_KEYS[topic].join(' · '), C.desc)]),
-                line([
-                  seg('e.g.   ', C.dim),
-                  ...highlight(
-                    SEARCH_TYPE_INFO[topic].placeholder.replace(
-                      /^.*e\.g\. /,
-                      `${COMMAND_FOR[topic]} ${topic === 'labels' ? 'vercel/next.js ' : ''}`,
-                    ),
-                  ),
-                ]),
-              ])
-              break
-            }
+          } else print(tokenStatusLines(savedToken, hasToken))
+          break
+        }
+        case 'rate':
+          print(rateLines({ remaining, limit, quota, resource, hasToken, now: at }))
+          break
+        case 'history':
+          print(historyLines(history))
+          break
+        case 'whoami':
+          print(whoamiLines(hasToken, limit))
+          break
+        case 'help': {
+          const topic = args[0] && searchTypeOf(args[0])
+          if (topic) print(searchHelpLines(topic))
+          else {
             const help = helpLines()
             print(help.lines, help.mobile)
-            break
           }
-          case 'crt': {
-            const [value] = args
-            if (value !== undefined && value !== 'on' && value !== 'off') {
-              usage('crt [on | off]')
-              break
-            }
-            const on = value === undefined ? crt : value === 'on'
-            if (on !== crt) {
-              setCrt(on)
-              saveCrt(on)
-            }
-            print([
-              line([
-                seg('crt ', C.dim),
-                seg(on ? 'on' : 'off', C.white),
-                seg(on ? ' · scanlines and glow · ' : ' · plain text · ', C.dim),
-                seg(`crt ${on ? 'off' : 'on'}`, C.green, {
-                  action: { type: 'run', command: `crt ${on ? 'off' : 'on'}` },
-                }),
-              ]),
-            ])
-            break
-          }
-          case 'clear':
-            setS((prev) => ({ ...prev, ...patch, entries: [] }))
-            return false
-          case 'exit':
-            print([
-              line([
-                seg('logout: this shell is the product. try ', C.dim),
-                seg('clear', C.green, { action: { type: 'run', command: 'clear' } }),
-                seg(' instead.', C.dim),
-              ]),
-            ])
-            break
-          default: {
-            fail(`command not found: ${first}`)
-            const suggestion = suggestCommand(first)
-            if (suggestion) {
-              print([
-                line([
-                  seg('  did you mean ', C.dim),
-                  seg(suggestion, C.green, { bold: true, action: { type: 'fill', text: `${suggestion} ` } }),
-                  seg('?', C.dim),
-                ]),
-              ])
-            }
-          }
+          break
         }
+        case 'crt': {
+          const [value] = args
+          if (value !== undefined && value !== 'on' && value !== 'off') {
+            print([usageLine('crt [on | off]')])
+            break
+          }
+          const on = value === undefined ? crt : value === 'on'
+          if (on !== crt) {
+            setCrt(on)
+            saveCrt(on)
+          }
+          print(crtLines(on))
+          break
+        }
+        case 'clear':
+          setS((prev) => ({ ...prev, ...patch, entries: [] }))
+          return false
+        case 'exit':
+          print(exitLines())
+          break
+        default:
+          fail(`command not found: ${first}`)
+          print(didYouMeanLines(first))
       }
     }
 
@@ -1006,30 +821,6 @@ export function Terminal() {
   ) : null
 
   if (layout === 'm') {
-    // [label, key, name for assistive tech where the label is a symbol]
-    const keys: [string, Key, string?][] = pickOn
-      ? [
-          ['↑', 'pick:up', 'previous result'],
-          ['↓', 'pick:down', 'next result'],
-          ['OPEN ↗', 'pick:open', 'open on GitHub'],
-          ['YANK', 'pick:yank'],
-          ['PREV', 'pick:prev', 'previous page'],
-          ['NEXT', 'pick:next', 'next page'],
-          ['QUIT', 'pick:quit'],
-        ]
-      : [
-          ['TAB', 'tab'],
-          ['↑', 'up', 'previous command'],
-          ['↓', 'down', 'next command'],
-          ['ESC', 'esc'],
-          ['^C', 'ctrlc', 'cancel line'],
-          ['^L', 'ctrll', 'clear screen'],
-          ['-', 'ins:-', 'type -'],
-          ['>', 'ins:>', 'type >'],
-          [':', 'ins::', 'type :'],
-          ['/', 'ins:/', 'type /'],
-          ['↵', 'enter', 'run'],
-        ]
     return (
       // No glow on phones, where it smears small text
       <div
@@ -1047,43 +838,13 @@ export function Terminal() {
           <span className="ml-auto">{quotaText}</span>
         </div>
         {scrollback}
-        <div
-          className="dowse-scroll flex flex-none gap-1.5 overflow-x-auto px-2.5 pt-2"
-          style={{
-            borderTop: `1px solid ${C.border}`,
-            background: C.bar,
-            paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
+        <MobileKeys
+          pick={pickOn}
+          onPress={press}
+          keepFocus={() => {
+            if (document.activeElement !== inputRef.current) inputRef.current?.focus({ preventScroll: true })
           }}
-        >
-          {keys.map(([label, key, name]) => {
-            const hot = key === 'pick:open' || key === 'enter'
-            return (
-              <button
-                key={key}
-                type="button"
-                aria-label={name}
-                // mousedown, not click, so the input keeps focus and the keyboard stays up
-                onMouseDown={(e) => {
-                  e.preventDefault()
-                  press(key)
-                  if (document.activeElement !== inputRef.current) inputRef.current?.focus({ preventScroll: true })
-                }}
-                // A click with no mousedown before it: the keyboard or a screen reader
-                onClick={(e) => {
-                  if (e.detail === 0) press(key)
-                }}
-                className="grid h-11 min-w-11 flex-none cursor-pointer place-items-center px-2.5 text-xs font-bold select-none"
-                style={{
-                  border: `1px solid ${hot ? C.green : '#1d3326'}`,
-                  color: hot ? C.bg : C.green,
-                  background: hot ? C.green : C.bg,
-                }}
-              >
-                {label}
-              </button>
-            )
-          })}
-        </div>
+        />
       </div>
     )
   }
@@ -1147,250 +908,4 @@ export function Terminal() {
 
 function hasBuildToken(): boolean {
   return effectiveToken(undefined) !== undefined
-}
-
-/**
- * Screen reader announcements, in place of the drawn output: the latest
- * output once it has finished, and the result picked. `outputKey` changes with
- * each output, so the same text twice is still announced twice.
- */
-function Announcer({ output, outputKey, picked }: { output: string; outputKey: string; picked: string }) {
-  return (
-    <>
-      <div role="status" className="sr-only">
-        {output && <p key={outputKey}>{output}</p>}
-      </div>
-      <div aria-live="polite" aria-atomic className="sr-only">
-        {picked && <p>{picked}</p>}
-      </div>
-    </>
-  )
-}
-
-function Segs({ segs, act }: { segs: Seg[]; act: (action: ShellAction) => void }) {
-  return segs.map((x, i) => (
-    <span
-      key={i}
-      onClick={
-        x.action
-          ? (e) => {
-              // The line may have its own action, e.g. selecting the row
-              e.stopPropagation()
-              act(x.action!)
-            }
-          : undefined
-      }
-      style={{
-        color: x.c,
-        background: x.bg,
-        fontWeight: x.bold ? 700 : undefined,
-        textDecoration: x.underline ? 'underline' : undefined,
-        cursor: x.action ? 'pointer' : undefined,
-      }}
-    >
-      {x.t}
-    </span>
-  ))
-}
-
-function Cursor({ on, caret, ch }: { on: boolean; caret: number; ch: string }) {
-  return (
-    <span
-      aria-hidden
-      className={on ? 'dowse-cursor' : undefined}
-      style={{
-        position: 'absolute',
-        top: 0,
-        left: `${caret}ch`,
-        width: '1ch',
-        height: '1.5em',
-        background: on ? C.green : 'transparent',
-        outline: on ? 'none' : `1px solid ${C.green}`,
-        outlineOffset: -1,
-        color: C.bg,
-        whiteSpace: 'pre',
-        boxShadow: on ? '0 0 8px rgba(77,255,154,.7)' : 'none',
-        textShadow: 'none',
-      }}
-    >
-      {ch}
-    </span>
-  )
-}
-
-const CHEAT: [string, string][] = [
-  ['find', 'repositories'],
-  ['code · issues', 'code, issues and PRs'],
-  ['commits · users', 'commits, people and orgs'],
-  ['topics · labels', 'topics, repo labels'],
-  ['tab', 'complete cmd / flag / value'],
-  ['↑ ↓ · →', 'history · accept suggestion'],
-  ['esc', 'pick mode'],
-  ['help', 'everything else'],
-]
-
-const NO_SIGNAL =
-  '   ┌──────────────┐\n   │  ·  ·  ·  ·  │\n   │   NO SIGNAL  │\n   │  ·  ·  ·  ·  │\n   └──────────────┘'
-
-interface PreviewProps {
-  glow: boolean
-  ctx: SearchContext | null
-  view: ResultView | undefined
-  rank: number
-  yanked: boolean
-  onOpen: () => void
-  onYank: () => void
-  act: (action: ShellAction) => void
-}
-
-/** The tmux-style right pane: compiled query and the selected result */
-function Preview({ glow, ctx, view, rank, yanked, onOpen, onYank, act }: PreviewProps) {
-  const label = (text: string) => <span style={{ color: C.dim }}>{text}</span>
-  const value = (text: string | number) => <span style={{ color: C.white }}>{text}</span>
-
-  return (
-    <div
-      className="dowse-scroll flex w-[420px] flex-none flex-col gap-3.5 overflow-y-auto"
-      style={{ borderLeft: `1px solid ${C.border}`, padding: '14px 20px 18px' }}
-    >
-      <div aria-hidden style={{ color: C.faint }}>
-        ── 1:preview ──────────────────────────
-      </div>
-      {ctx && (
-        <div className="text-xs">
-          <div className="mb-0.5" style={{ color: C.dim }}>
-            compiled query
-          </div>
-          <div>
-            {label('type = ')}
-            {value(ctx.type)}
-            {ctx.mode && (
-              <>
-                {label(' · search_type = ')}
-                {value(ctx.mode)}
-              </>
-            )}
-          </div>
-          {ctx.repo && (
-            <div>
-              {label('repo = ')}
-              {value(ctx.repo)}
-            </div>
-          )}
-          <div className="whitespace-pre-wrap wrap-break-word">
-            {label('q = ')}
-            <Segs segs={highlight(`find ${ctx.q}`).slice(2)} act={act} />
-          </div>
-          <div>
-            {label('sort = ')}
-            {value(sortLabel(ctx))}
-            {label(' · per_page = ')}
-            {value(ctx.perPage)}
-          </div>
-        </div>
-      )}
-      {view ? (
-        <>
-          <div className="flex justify-between text-xs" style={{ color: C.dim }}>
-            <span>── target ──</span>
-            <span>#{String(rank).padStart(2, '0')}</span>
-          </div>
-          <div className="wrap-break-word" style={{ fontSize: 17, lineHeight: 1.3 }}>
-            {label(view.prefix)}
-            <span
-              style={{
-                color: view.titleColor ?? C.green,
-                background: view.titleBg,
-                fontWeight: 700,
-                textShadow: glow && !view.titleBg ? '0 0 10px rgba(77,255,154,.5)' : 'none',
-              }}
-            >
-              {view.title}
-            </span>
-            <Segs segs={view.badges} act={act} />
-          </div>
-          {view.detail && (
-            <div className="text-pretty" style={{ color: C.desc }}>
-              {view.detail}
-            </div>
-          )}
-          <div className="grid grid-cols-[76px_1fr] gap-x-3 gap-y-0.5 text-xs">
-            {view.facts.map((f) => (
-              <div key={f.label} className="contents">
-                {label(f.label)}
-                <span
-                  onClick={f.url ? () => act({ type: 'openUrl', url: f.url! }) : undefined}
-                  className={f.url ? 'cursor-pointer truncate underline' : 'wrap-break-word'}
-                  style={{ color: f.color }}
-                >
-                  {f.value}
-                </span>
-              </div>
-            ))}
-          </div>
-          {view.tags.length > 0 && (
-            <div className="text-xs leading-6 whitespace-pre-wrap">
-              <Segs segs={view.tags} act={act} />
-            </div>
-          )}
-          {view.fragments.length > 0 && (
-            <div
-              className="overflow-x-auto p-2.5 text-xs whitespace-pre"
-              style={{ background: '#0d1510', border: `1px solid ${C.border}` }}
-            >
-              {view.fragments.map((f, i) => (
-                <div key={i} style={{ minHeight: '1.5em' }}>
-                  <Segs segs={f} act={act} />
-                </div>
-              ))}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={onYank}
-            className="flex cursor-pointer justify-between gap-2.5 px-[11px] py-[9px] text-left text-xs"
-            style={{ background: '#0d1510', border: `1px solid ${C.border}` }}
-          >
-            <span className="min-w-0 truncate">
-              {view.yank.shell ? (
-                <>
-                  {label('$ ')}
-                  {view.yank.shell}
-                </>
-              ) : (
-                <>
-                  {label(`${view.yank.label}  `)}
-                  {view.yank.text}
-                </>
-              )}
-            </span>
-            <span className="flex-none" style={{ color: yanked ? C.green : C.dim }}>
-              {yanked ? 'copied ✓' : 'y yank'}
-            </span>
-          </button>
-          <button type="button" onClick={onOpen} className="dowse-open cursor-pointer p-[9px] text-center">
-            [ ↵ open on github ↗ ]
-          </button>
-        </>
-      ) : (
-        <div className="flex flex-col gap-3.5" style={{ color: C.dim }}>
-          <div aria-hidden className="whitespace-pre" style={{ color: C.faint, lineHeight: 1.3 }}>
-            {NO_SIGNAL}
-          </div>
-          <div>
-            no target. run a search, e.g. <span style={{ color: C.green }}>find &lt;terms&gt;</span>; the selected
-            result shows up here.
-          </div>
-          <div className="grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-[3px] text-xs">
-            {CHEAT.map(([k, d]) => (
-              <div key={k} className="contents">
-                <span style={{ color: C.amber }}>{k}</span>
-                <span>{d}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  )
 }
