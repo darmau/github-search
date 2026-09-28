@@ -127,13 +127,13 @@ describe('output', () => {
   })
 
   it('explains how to get a token when there is none', () => {
-    const lines = tokenStatusLines(undefined, false)
+    const lines = tokenStatusLines(false)
     expect(lines[1].segs[1].action).toEqual({
       type: 'openUrl',
       url: 'https://github.com/settings/personal-access-tokens/new',
     })
-    expect(texts(tokenStatusLines('github_pat_abcd1234', true))[0]).toBe('token ••••1234 · 30 searches/min · token rm')
-    expect(texts(tokenStatusLines(undefined, true))[0]).toBe('token from build · 30 searches/min')
+    expect(texts(lines)[2]).toBe('  then set VITE_GITHUB_TOKEN and rebuild')
+    expect(texts(tokenStatusLines(true))[0]).toBe('token from VITE_GITHUB_TOKEN · 30 searches/min')
   })
 
   it('draws the quota as a bar', () => {

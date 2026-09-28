@@ -120,7 +120,7 @@ const LOGO = [
   '|____/  \\___/    \\_/\\_/   |____/ |_____|',
 ]
 
-export const TOKEN_HINT = seg('token set <pat>', C.green, { action: { type: 'fill', text: 'token set ' } })
+export const TOKEN_HINT = seg('VITE_GITHUB_TOKEN', C.green)
 
 export function motdLines(hasToken: boolean, date: string): Line[] {
   return [
@@ -133,7 +133,7 @@ export function motdLines(hasToken: boolean, date: string): Line[] {
     line([seg('designed and developed by ', C.faint), seg('Liao', C.desc)]),
     hasToken
       ? line([seg('[ ok ] ', C.green), seg('token in use · 30 searches/min · code search on', C.desc)])
-      : line([seg('[warn] ', C.amber), seg('no token · 10 searches/min · no code search · ', C.desc), TOKEN_HINT]),
+      : line([seg('[warn] ', C.amber), seg('no token · 10 searches/min · no code search · set ', C.desc), TOKEN_HINT]),
     line([
       seg('[info] ', C.cyan),
       seg(`each query returns at most ${formatNumber(SEARCH_MAX_RESULTS)} results`, C.desc),
@@ -196,7 +196,7 @@ const OTHER_HELP: [string, string][] = [
   ['sort <key> [asc|desc]', 're-sort the last search (tab lists keys)'],
   ['ls', 'reprint last results (no quota)'],
   ['view · open · yank [#]', 'preview · open on GitHub · copy'],
-  ['token [set <pat> | rm]', 'raise the limit from 10 to 30/min'],
+  ['token', 'whether a token raises the limit to 30/min'],
   ['crt [on | off]', 'scanlines and glow'],
   ['rate · history · whoami · clear', ''],
 ]
@@ -371,13 +371,9 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
     const status = error instanceof GitHubApiError ? `${error.status} ` : ''
     push([seg(`[fail] ${status}`, C.red, { bold: true }), seg(error?.message ?? 'search failed', C.red)])
     if (error instanceof MissingTokenError) {
-      push([seg('       ', C.dim), TOKEN_HINT, seg(' to use this search', C.dim)])
+      push([seg('       set ', C.dim), TOKEN_HINT, seg(' to use this search', C.dim)])
     } else if (error instanceof GitHubApiError && error.status === 401) {
-      push([
-        seg('       try ', C.dim),
-        seg('token rm', C.green, { action: { type: 'fill', text: 'token rm' } }),
-        seg(' or a new token', C.dim),
-      ])
+      push([seg('       check ', C.dim), TOKEN_HINT])
     }
     push([])
     return lines
@@ -512,7 +508,7 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
       push([
         seg('[warn] ', C.amber),
         seg(`${view.remaining} of ${view.limit} searches left this minute`, C.amber),
-        ...(view.hasToken ? [] : [seg(' · ', C.dim), TOKEN_HINT, seg(' for more', C.dim)]),
+        ...(view.hasToken ? [] : [seg(' · set ', C.dim), TOKEN_HINT, seg(' for more', C.dim)]),
       ])
     }
     const link = (t: string) => seg(t, C.green, { underline: true, action: { type: 'run', command: t } })

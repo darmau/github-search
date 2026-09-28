@@ -122,7 +122,7 @@ describe('searchLines', () => {
 
   it('warns when the quota runs low, and offers a token', () => {
     const lines = texts(searchLines(doneEntry([repo]), view({ remaining: 1 })))
-    expect(lines).toContainEqual('[warn] 1 of 10 searches left this minute · token set <pat> for more')
+    expect(lines).toContainEqual('[warn] 1 of 10 searches left this minute · set VITE_GITHUB_TOKEN for more')
   })
 
   it('counts down to a retry when rate limited', () => {

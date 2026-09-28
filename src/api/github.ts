@@ -135,10 +135,8 @@ export function rateLimitBucket(resource: RateLimitResource, token: string | und
   return JSON.stringify([token || null, resource])
 }
 
-/** The token a request actually sends: `undefined` means the build-time one */
-export function effectiveToken(token: string | undefined): string | undefined {
-  return (token === undefined ? DEFAULT_TOKEN : token) || undefined
-}
+/** Whether requests are sent with the token from VITE_GITHUB_TOKEN */
+export const HAS_TOKEN = Boolean(DEFAULT_TOKEN)
 
 /** Code search and semantic/hybrid issue search reject anonymous requests */
 export function searchRequiresToken<T extends SearchType>(type: T, params: SearchEndpoints[T]['params']): boolean {

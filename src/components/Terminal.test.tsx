@@ -1,7 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getRepository, GitHubApiError, MissingTokenError, searchGitHub } from '../api/github'
-import { useGitHubToken } from '../hooks/useGitHubToken'
 import type {
   IssueSearchResultItem,
   LabelSearchResultItem,
@@ -126,7 +125,7 @@ describe('Terminal', () => {
     expect(search).toHaveBeenCalledWith(
       'repositories',
       { q: 'vector database language:rust stars:>5000', sort: 'stars', order: 'desc', per_page: 10, page: 1 },
-      expect.objectContaining({ token: undefined }),
+      expect.objectContaining({ textMatch: false }),
     )
     expect(text()).toContain('1,234 repositories')
     // GitHub serves only the first 1,000
@@ -355,28 +354,6 @@ describe('Terminal', () => {
     expect(text()).toContain('1 repository')
   })
 
-  it('saves and removes a token without echoing it', async () => {
-    let token: string | null = null
-    function Probe() {
-      token = useGitHubToken()
-      return null
-    }
-    render(
-      <>
-        <Terminal />
-        <Probe />
-      </>,
-    )
-
-    await type('token set github_pat_secret1234')
-    expect(token).toBe('github_pat_secret1234')
-    expect(text()).not.toContain('secret')
-    expect(text()).toContain('••••1234')
-
-    await type('token rm')
-    expect(token).toBeNull()
-  })
-
   it('completes commands with tab', () => {
     render(<Terminal />)
 
@@ -443,7 +420,7 @@ describe('Terminal', () => {
 
     expect(search).toHaveBeenCalledWith('code', expect.anything(), expect.objectContaining({ textMatch: true }))
     expect(text()).toContain('Code search needs a GitHub token')
-    expect(text()).toContain('token set <pat> to use this search')
+    expect(text()).toContain('set VITE_GITHUB_TOKEN to use this search')
   })
 
   it('only offers the sorts a search type supports', async () => {

@@ -8,7 +8,6 @@ import {
   formatCountdown,
   formatSize,
   highlight,
-  maskToken,
   parseSearch,
   searchTypeOf,
   suggestCommand,
@@ -198,11 +197,6 @@ describe('completionCandidates', () => {
 })
 
 describe('helpers', () => {
-  it('masks a token typed into the shell', () => {
-    expect(maskToken('token set github_pat_abcd1234')).toBe('token set ••••1234')
-    expect(maskToken('find react')).toBe('find react')
-  })
-
   it('suggests a close command', () => {
     expect(suggestCommand('fnid')).toBe('find')
     expect(suggestCommand('zzzzzz')).toBeUndefined()

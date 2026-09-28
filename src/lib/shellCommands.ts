@@ -1,7 +1,7 @@
 /**
  * The shell's commands, apart from their side effects: checking arguments and
  * building the lines they print. The Terminal runs the effects (searching,
- * saving the token, opening tabs) and prints what these return.
+ * opening tabs) and prints what these return.
  */
 import { SEARCH_MAX_RESULTS, type RateLimitResource } from '../api/github'
 import type { SearchQuota } from '../api/rateLimit'
@@ -19,7 +19,6 @@ import {
   highlight,
   isSortKey,
   line,
-  maskSecret,
   padStart,
   parseSearch,
   seg,
@@ -29,7 +28,7 @@ import {
   type Line,
   type SearchContext,
 } from './shell'
-import { capHint, pageOffset, totalPages, type SearchEntry } from './shellOutput'
+import { capHint, pageOffset, TOKEN_HINT, totalPages, type SearchEntry } from './shellOutput'
 import type { ResultView } from './shellResults'
 
 export const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new'
@@ -157,36 +156,10 @@ export function yankLines({ yank }: ResultView): Line[] {
     : [line([seg(`copied ${yank.label} `, C.dim), seg(yank.text, C.white)])]
 }
 
-export function tokenSavedLines(token: string): Line[] {
-  return [
-    line([seg('[ ok ] ', C.green), seg(`token ${maskSecret(token)} saved in this browser · limit 30/min`, C.desc)]),
-    line([seg('[info] ', C.cyan), seg("sent only to api.github.com. don't use a token with write access.", C.desc)]),
-  ]
-}
-
-export function tokenRemovedLines(hasBuildToken: boolean): Line[] {
-  return [
-    line([
-      seg('[ ok ] ', C.green),
-      seg(`token removed${hasBuildToken ? ' · using the build-time token' : ' · limit 10/min'}`, C.desc),
-    ]),
-  ]
-}
-
-/** `token` on its own. `savedToken` is the one saved in this browser, not a build-time one. */
-export function tokenStatusLines(savedToken: string | undefined, hasToken: boolean): Line[] {
-  if (hasToken) {
-    return [
-      line([
-        seg('token ', C.dim),
-        seg(savedToken ? maskSecret(savedToken) : 'from build', C.white),
-        seg(' · 30 searches/min', C.dim),
-        ...(savedToken
-          ? [seg(' · ', C.dim), seg('token rm', C.green, { action: { type: 'fill', text: 'token rm' } })]
-          : []),
-      ]),
-    ]
-  }
+/** `token`: whether the build has one, and how to give it one */
+export function tokenStatusLines(hasToken: boolean): Line[] {
+  if (hasToken)
+    return [line([seg('token ', C.dim), seg('from VITE_GITHUB_TOKEN', C.white), seg(' · 30 searches/min', C.dim)])]
   return [
     line([seg('no token · 10 searches/min · no code or semantic issue search', C.amber)]),
     line([
@@ -196,7 +169,7 @@ export function tokenStatusLines(savedToken: string | undefined, hasToken: boole
         action: { type: 'openUrl', url: NEW_TOKEN_URL },
       }),
     ]),
-    line([seg('  then ', C.dim), seg('token set <pat>', C.green, { action: { type: 'fill', text: 'token set ' } })]),
+    line([seg('  then set ', C.dim), TOKEN_HINT, seg(' and rebuild', C.dim)]),
   ]
 }
 

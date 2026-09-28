@@ -506,7 +506,6 @@ export function completionCandidates(
   else if (type && prev && FLAGS[type][prev]?.takesValue) candidates = FLAGS[type][prev].values ?? []
   else if (command === 'sort' && words.length === 2) candidates = sortType ? SORT_KEYS[sortType] : []
   else if (command === 'sort' && words.length === 3) candidates = ['asc', 'desc']
-  else if (command === 'token' && words.length === 2) candidates = ['set', 'rm']
   else if (command === 'crt' && words.length === 2) candidates = ['on', 'off']
   else if (command === 'help') candidates = COMMANDS
   else if (['open', 'view', 'yank'].includes(command)) candidates = ranks
@@ -540,20 +539,6 @@ export function levenshtein(a: string, b: string): number {
 
 export function suggestCommand(typed: string): string | undefined {
   return COMMANDS.find((c) => levenshtein(c, typed) <= 2)
-}
-
-/** Enough of a token to recognise it, not enough to use it */
-export function maskSecret(token: string): string {
-  return `••••${token.slice(-4)}`
-}
-
-/** Keeps a token out of the scrollback and history */
-export function maskToken(text: string): string {
-  return text.replace(/(token\s+set\s+)(\S+)/, (_, head: string, token: string) => head + maskSecret(token))
-}
-
-export function looksLikeToken(token: string): boolean {
-  return /^(ghp_|github_pat_|gho_)/.test(token)
 }
 
 /** 49234 → "49.2k" */

@@ -27,7 +27,7 @@ export function saveCrt(on: boolean): void {
   }
 }
 
-/** Command history, oldest first. Tokens were masked before it was saved. */
+/** Command history, oldest first */
 export function loadHistory(max: number): string[] {
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '[]')

@@ -9,9 +9,8 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from 'react'
-import { effectiveToken, getRepository, GitHubApiError, searchGitHub, searchResource } from '../api/github'
+import { getRepository, GitHubApiError, HAS_TOKEN, searchGitHub, searchResource } from '../api/github'
 import { getCachedSearch, searchCacheKey, setCachedSearch } from '../api/searchCache'
-import { setGitHubToken, useGitHubToken } from '../hooks/useGitHubToken'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useSearchQuota } from '../hooks/useSearchQuota'
 import { parseRepositoryName } from '../lib/repositoryName'
@@ -26,8 +25,6 @@ import {
   formatCountdown,
   highlight,
   line,
-  looksLikeToken,
-  maskToken,
   searchTypeOf,
   seg,
   sortLabel,
@@ -65,8 +62,6 @@ import {
   searchFromArgs,
   searchHelpLines,
   targetPage,
-  tokenRemovedLines,
-  tokenSavedLines,
   tokenStatusLines,
   usageLine,
   viewLines,
@@ -144,9 +139,7 @@ function withEnter(level: PickKeys): PickKeys {
 
 /** dowse: a shell for GitHub search */
 export function Terminal() {
-  // A saved token takes over from the build-time one
-  const savedToken = useGitHubToken() ?? undefined
-  const hasToken = effectiveToken(savedToken) !== undefined
+  const hasToken = HAS_TOKEN
   const desktop = useMediaQuery('(min-width: 1200px)')
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const layout: Layout = desktop ? 'd' : 'm'
@@ -183,7 +176,7 @@ export function Terminal() {
   const live = s.entries.find((e): e is SearchEntry => e.kind === 'search' && e.id === s.liveId)
   // Code and semantic issue search count against limits of their own
   const resource = s.ctx ? searchResource(s.ctx.type, toSearchParams(s.ctx)) : 'search'
-  const quota = useSearchQuota(resource, savedToken)
+  const quota = useSearchQuota(resource)
   const limit = quota?.limit ?? (hasToken && resource === 'search' ? 30 : 10)
   const remaining = live?.status === 'limited' ? 0 : (quota?.remaining ?? limit)
   const items = (live?.status === 'done' && live.data?.items) || []
@@ -245,10 +238,10 @@ export function Terminal() {
     if (ctx.type === 'labels') {
       // Label search takes the repository's id; the lookup is cached
       const name = parseRepositoryName(ctx.repo ?? '')!
-      repositoryId = (await getRepository(name.owner, name.name, { token: savedToken, signal })).id
+      repositoryId = (await getRepository(name.owner, name.name, { signal })).id
     }
     const params = toSearchParams(ctx, repositoryId)
-    const options = { token: savedToken, textMatch: SEARCH_TYPE_INFO[ctx.type].textMatch }
+    const options = { textMatch: SEARCH_TYPE_INFO[ctx.type].textMatch }
     const key = searchCacheKey(ctx.type, params, options)
     const cached = getCachedSearch<AnySearchResponse>(key)
     if (cached) return { data: cached, cached: true }
@@ -318,9 +311,8 @@ export function Terminal() {
   function exec(raw: string, pickKeys: PickKeys = 'arrows'): boolean {
     const at = Date.now()
     const text = raw.trim()
-    const out: Entry[] = [{ kind: 'cmd', id: newId(), text: maskToken(raw), at }]
-    const masked = maskToken(text)
-    const history = text && s.history.at(-1) !== masked ? [...s.history, masked].slice(-MAX_HISTORY) : s.history
+    const out: Entry[] = [{ kind: 'cmd', id: newId(), text: raw, at }]
+    const history = text && s.history.at(-1) !== text ? [...s.history, text].slice(-MAX_HISTORY) : s.history
     const patch: Partial<ShellState> = { history, historyIndex: null, pick: false, pickKeys }
     let launch: SearchEntry | null = null
 
@@ -408,25 +400,9 @@ export function Terminal() {
           }
           break
         }
-        case 'token': {
-          const [sub, token] = args
-          if (sub === 'set') {
-            if (!token) fail('token set: missing token')
-            else if (!looksLikeToken(token))
-              fail("token: that doesn't look like a GitHub token (ghp_… or github_pat_…)")
-            else {
-              setGitHubToken(token)
-              print(tokenSavedLines(token))
-            }
-          } else if (sub === 'rm') {
-            if (!savedToken) fail('token: none saved')
-            else {
-              setGitHubToken(null)
-              print(tokenRemovedLines(hasBuildToken()))
-            }
-          } else print(tokenStatusLines(savedToken, hasToken))
+        case 'token':
+          print(tokenStatusLines(hasToken))
           break
-        }
         case 'rate':
           print(rateLines({ remaining, limit, quota, resource, hasToken, now: at }))
           break
@@ -588,7 +564,7 @@ export function Terminal() {
       // Entered on purpose, so pick mode takes the letter keys too
       else if (items.length) setS((prev) => ({ ...prev, pick: !prev.pick, pickKeys: 'all' }))
     } else if (key === 'ctrlc') {
-      append([{ kind: 'cmd', id: newId(), text: maskToken(s.input), suffix: '^C', at: Date.now() }], { pick: false })
+      append([{ kind: 'cmd', id: newId(), text: s.input, suffix: '^C', at: Date.now() }], { pick: false })
       setInput('')
     } else if (key === 'ctrll') setS((prev) => ({ ...prev, entries: [], pick: false }))
     else if (key.startsWith('ins:')) {
@@ -903,8 +879,4 @@ export function Terminal() {
       </div>
     </div>
   )
-}
-
-function hasBuildToken(): boolean {
-  return effectiveToken(undefined) !== undefined
 }

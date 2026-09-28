@@ -28,9 +28,9 @@ On narrow screens a row of keys replaces the ones a phone keyboard lacks.
 ### Token
 
 Without a token GitHub allows 10 searches a minute and no code or semantic issue search. Create a
-[fine-grained token](https://github.com/settings/personal-access-tokens/new) with no extra permissions, then
-run `token set <token>` to raise the limit to 30 a minute. The token is stored in this browser's
-localStorage and sent only to `api.github.com`; don't use one with write access. `token rm` removes it.
+[fine-grained token](https://github.com/settings/personal-access-tokens/new) with no extra permissions and
+set it as `VITE_GITHUB_TOKEN` (e.g. in `.env.local`) to raise the limit to 30 a minute; see
+[Building with a token](#building-with-a-token). `token` shows whether one is in use.
 
 ## Development
 

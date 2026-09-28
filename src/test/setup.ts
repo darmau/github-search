@@ -3,7 +3,6 @@ import { afterEach } from 'vitest'
 import { clearRepositoryCache } from '../api/github'
 import { resetRateLimits } from '../api/rateLimit'
 import { clearSearchCache } from '../api/searchCache'
-import { setGitHubToken } from '../hooks/useGitHubToken'
 
 afterEach(() => {
   // Testing Library only auto-cleans when `afterEach` is a global, which it
@@ -17,7 +16,5 @@ afterEach(() => {
   clearRepositoryCache()
   // So does the jsdom URL, which holds the search state
   window.history.replaceState(null, '', '/')
-  // And the saved token, which lives in localStorage
-  setGitHubToken(null)
   localStorage.clear()
 })
