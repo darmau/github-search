@@ -69,6 +69,7 @@ export function motdLines(hasToken: boolean, date: string): Line[] {
     ...LOGO.map((l) => line([seg(l, C.green, { bold: true })])),
     line([]),
     line([seg('dowse', C.white, { bold: true }), seg(` — github search shell · ${hasToken ? 'token' : 'guest'}@tty0 · ${date}`, C.dim)]),
+    line([seg('designed and developed by ', C.faint), seg('Liao', C.desc)]),
     hasToken
       ? line([seg('[ ok ] ', C.green), seg('token in use · 30 searches/min · code search on', C.desc)])
       : line([seg('[warn] ', C.amber), seg('no token · 10 searches/min · no code search · ', C.desc), TOKEN_HINT]),
