@@ -1,1 +1,83 @@
 @import "tailwindcss";
+
+/* ghs terminal. JetBrains Mono is used when installed; the CSP keeps web fonts out */
+body {
+  margin: 0;
+  background: #070a08;
+}
+
+.ghs {
+  background: #070a08;
+  color: #cfe8d6;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-shadow: 0 0 5px rgba(77, 255, 154, 0.16);
+}
+
+.ghs a {
+  color: #4dff9a;
+}
+
+.ghs-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #1d3326 transparent;
+}
+
+.ghs-crt {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  pointer-events: none;
+  opacity: 0.5;
+  background:
+    repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.35) 0 1px, transparent 1px 3px),
+    radial-gradient(ellipse at center, transparent 60%, rgba(0, 0, 0, 0.65) 100%);
+}
+
+.ghs-scan {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 160px;
+  z-index: 49;
+  pointer-events: none;
+  background: linear-gradient(transparent, rgba(77, 255, 154, 0.045), transparent);
+  animation: ghs-scan 9s linear infinite;
+}
+
+.ghs-cursor {
+  animation: ghs-blink 1.05s steps(1) infinite;
+}
+
+.ghs-open {
+  border: 1px solid #4dff9a;
+  color: #4dff9a;
+}
+
+.ghs-open:hover {
+  background: #4dff9a;
+  color: #051008;
+}
+
+@keyframes ghs-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+@keyframes ghs-scan {
+  from {
+    top: -160px;
+  }
+  to {
+    top: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ghs-scan {
+    display: none;
+  }
+  .ghs-cursor {
+    animation: none;
+  }
+}
