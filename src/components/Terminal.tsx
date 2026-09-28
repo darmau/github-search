@@ -6,26 +6,25 @@ import {
   useState,
   type ChangeEvent,
   type KeyboardEvent,
-  type ReactNode,
 } from 'react'
-import { effectiveToken, GitHubApiError, searchGitHub } from '../api/github'
+import { effectiveToken, getRepository, GitHubApiError, searchGitHub, searchResource } from '../api/github'
 import { getCachedSearch, searchCacheKey, setCachedSearch } from '../api/searchCache'
 import { setGitHubToken, useGitHubToken } from '../hooks/useGitHubToken'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useSearchQuota } from '../hooks/useSearchQuota'
-import { formatNumber } from '../lib/format'
+import { parseRepositoryName } from '../lib/repositoryName'
 import { validateSearchQuery } from '../lib/searchQuery'
+import { SEARCH_TYPE_INFO } from '../lib/searchTypes'
 import {
   ALIASES,
   C,
+  COMMAND_FOR,
   commonPrefix,
   completionCandidates,
   completionSuffix,
   EXAMPLES,
-  formatAgo,
+  FLAGS,
   formatCountdown,
-  formatShort,
-  formatSize,
   highlight,
   isSortKey,
   line,
@@ -33,13 +32,15 @@ import {
   maskSecret,
   maskToken,
   padStart,
-  parseFind,
+  parseSearch,
+  searchTypeOf,
   seg,
   SORT_KEYS,
   sortLabel,
   suggestCommand,
   toSearchParams,
   tokenize,
+  USAGE,
   type Line,
   type SearchContext,
   type Seg,
@@ -52,14 +53,13 @@ import {
   helpLines,
   motdLines,
   pageOffset,
-  repoOwner,
   searchLines,
   totalPages,
   type Entry,
   type Layout,
   type SearchEntry,
 } from '../lib/shellOutput'
-import type { RepositorySearchResponse, RepositorySearchResultItem } from '../types/github'
+import { describeResult, type AnySearchResponse, type ResultView } from '../lib/shellResults'
 
 const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new'
 /** Lines of output typed out per millisecond, roughly */
@@ -96,12 +96,11 @@ const PICK_KEYS: Record<string, PickAction> = {
   y: 'yank', n: 'next', p: 'prev', q: 'quit', Escape: 'quit',
 }
 
-/** ghs: a shell for GitHub repository search */
+/** ghs: a shell for GitHub search */
 export function Terminal() {
   // A saved token takes over from the build-time one
   const savedToken = useGitHubToken() ?? undefined
   const hasToken = effectiveToken(savedToken) !== undefined
-  const quota = useSearchQuota('search', savedToken)
   const desktop = useMediaQuery('(min-width: 1200px)')
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const layout: Layout = desktop ? 'd' : 'm'
@@ -130,12 +129,16 @@ export function Terminal() {
   const requests = useRef(new Set<AbortController>())
   const yankTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
 
-  const limit = quota?.limit ?? (hasToken ? 30 : 10)
   const live = s.entries.find((e): e is SearchEntry => e.kind === 'search' && e.id === s.liveId)
-  const liveData = live?.status === 'done' ? live.data : undefined
-  const items = liveData?.items ?? []
+  // Code and semantic issue search count against limits of their own
+  const resource = s.ctx ? searchResource(s.ctx.type, toSearchParams(s.ctx)) : 'search'
+  const quota = useSearchQuota(resource, savedToken)
+  const limit = quota?.limit ?? (hasToken && resource === 'search' ? 30 : 10)
   const remaining = live?.status === 'limited' ? 0 : (quota?.remaining ?? limit)
-  const selected: RepositorySearchResultItem | undefined = items[Math.min(s.sel, items.length - 1)]
+  const items = (live?.status === 'done' && live.data?.items) || []
+  const selIndex = Math.min(s.sel, items.length - 1)
+  const selected: ResultView | undefined = live && items.length ? describeResult(live.ctx, items[selIndex], now) : undefined
+  const selectedRank = live && selected ? pageOffset(live.ctx) + selIndex + 1 : 0
   const pickOn = s.pick && items.length > 0
 
   // Ticks fast while output is typing out or a spinner runs, otherwise once a
@@ -180,23 +183,31 @@ export function Terminal() {
     setNow(at)
   }
 
-  function runSearch(id: number, ctx: SearchContext) {
-    const params = toSearchParams(ctx)
-    const key = searchCacheKey('repositories', params, { token: savedToken })
-    const cached = getCachedSearch<RepositorySearchResponse>(key)
-    if (cached) {
-      settle(id, { status: 'done', data: cached, cached: true })
-      return
+  async function fetchResults(ctx: SearchContext, signal: AbortSignal): Promise<{ data: AnySearchResponse; cached: boolean }> {
+    let repositoryId: number | undefined
+    if (ctx.type === 'labels') {
+      // Label search takes the repository's id; the lookup is cached
+      const name = parseRepositoryName(ctx.repo ?? '')!
+      repositoryId = (await getRepository(name.owner, name.name, { token: savedToken, signal })).id
     }
+    const params = toSearchParams(ctx, repositoryId)
+    const options = { token: savedToken, textMatch: SEARCH_TYPE_INFO[ctx.type].textMatch }
+    const key = searchCacheKey(ctx.type, params, options)
+    const cached = getCachedSearch<AnySearchResponse>(key)
+    if (cached) return { data: cached, cached: true }
+    const data = await searchGitHub(ctx.type, params, { ...options, signal })
+    setCachedSearch(key, data)
+    return { data, cached: false }
+  }
 
+  function runSearch(id: number, ctx: SearchContext) {
     settle(id, { status: 'loading' })
     const controller = new AbortController()
     requests.current.add(controller)
     const started = performance.now()
-    searchGitHub('repositories', params, { token: savedToken, signal: controller.signal })
-      .then((data) => {
-        setCachedSearch(key, data)
-        settle(id, { status: 'done', data, cached: false, ms: Math.round(performance.now() - started) })
+    fetchResults(ctx, controller.signal)
+      .then(({ data, cached }) => {
+        settle(id, { status: 'done', data, cached, ms: Math.round(performance.now() - started) })
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return
@@ -251,6 +262,7 @@ export function Terminal() {
 
     const print = (lines: Line[], mobile?: Line[]) => out.push({ kind: 'lines', id: newId(), lines, mobile, at })
     const fail = (message: string) => print([errorLine(message)])
+    const usage = (u: string) => print([line([seg('usage: ', C.dim), ...highlight(u)])])
     const search = (ctx: SearchContext, done?: SearchEntry) => {
       launch = done
         ? { ...done, id: newId(), ctx, at, cached: true }
@@ -263,7 +275,7 @@ export function Terminal() {
     // The results on screen, for commands that act on them
     const onScreen = (): SearchEntry | null => {
       if (live?.status === 'done' && live.data) return live
-      fail(s.ctx ? 'wait for the current search to finish' : 'no results on screen — run find first')
+      fail(s.ctx ? 'wait for the current search to finish' : 'no results on screen — run a search first')
       return null
     }
     const pickItem = (arg: string | undefined) => {
@@ -273,196 +285,215 @@ export function Terminal() {
         return null
       }
       const list = entry.data.items
-      if (arg === undefined) {
-        const index = Math.min(s.sel, list.length - 1)
-        return { item: list[index], index }
-      }
       const offset = pageOffset(entry.ctx)
-      const index = parseInt(arg, 10) - offset - 1
+      const index = arg === undefined ? Math.min(s.sel, list.length - 1) : parseInt(arg, 10) - offset - 1
       if (!(index >= 0 && index < list.length)) {
         fail(`#${arg} is not on this page (${offset + 1}–${offset + list.length})`)
         return null
       }
-      return { item: list[index], index }
+      return { view: describeResult(entry.ctx, list[index], at), index }
     }
 
     if (text) {
       const [first, ...args] = tokenize(text)
       const command = ALIASES[first] ?? first
-      switch (command) {
-        case 'find': {
-          const found = parseFind(args, at)
-          const invalid = 'error' in found ? found.error : validateSearchQuery(found.q, 'repositories')?.message
-          if (invalid || 'error' in found) {
-            fail(`find: ${invalid}`)
-            print([line([seg('usage: ', C.dim), ...highlight('find <terms> [--lang L] [--stars >N] [--pushed <30d] [--sort key]')])])
-            break
-          }
+      const type = searchTypeOf(command)
+      if (type) {
+        const parsed = parseSearch(type, args, at)
+        const invalid = 'error' in parsed ? parsed.error : validateSearchQuery(parsed.q, type)?.message
+        if (invalid || 'error' in parsed) {
+          fail(`${command}: ${invalid}`)
+          usage(USAGE[type])
+        } else {
           search({
-            q: found.q,
-            sort: found.sort ?? 'best',
-            order: found.order ?? 'desc',
-            perPage: found.perPage ?? s.ctx?.perPage ?? 10,
+            type,
+            q: parsed.q,
+            sort: parsed.sort ?? 'best',
+            order: parsed.order ?? 'desc',
+            perPage: parsed.perPage ?? s.ctx?.perPage ?? 10,
             page: 1,
+            repo: parsed.repo,
+            mode: parsed.mode,
           })
-          break
         }
-        case 'next':
-        case 'prev':
-        case 'page': {
-          const entry = onScreen()
-          if (!entry) break
-          const pages = totalPages(entry)
-          const page = command === 'page' ? parseInt(args[0], 10) : entry.ctx.page + (command === 'next' ? 1 : -1)
-          if (!(page >= 1 && page <= pages)) {
-            fail(
-              command === 'page'
-                ? `page: expected 1–${pages}`
-                : `${command}: already on the ${page < 1 ? 'first' : 'last'} page (${entry.ctx.page}/${pages})`,
+      } else {
+        switch (command) {
+          case 'next':
+          case 'prev':
+          case 'page': {
+            const entry = onScreen()
+            if (!entry) break
+            const pages = totalPages(entry)
+            const page = command === 'page' ? parseInt(args[0], 10) : entry.ctx.page + (command === 'next' ? 1 : -1)
+            if (!(page >= 1 && page <= pages)) {
+              fail(
+                command === 'page'
+                  ? `page: expected 1–${pages}`
+                  : `${command}: already on the ${page < 1 ? 'first' : 'last'} page (${entry.ctx.page}/${pages})`,
+              )
+              if (page > pages && (entry.data?.total_count ?? 0) > pages * entry.ctx.perPage) {
+                out.push({ kind: 'lines', id: newId(), at, lines: [capHint('  github returns only the first 1,000 results — narrow with ', entry.ctx)] })
+              }
+              break
+            }
+            search({ ...entry.ctx, page })
+            break
+          }
+          case 'sort': {
+            if (!s.ctx) {
+              fail('no previous search — run a search first')
+              break
+            }
+            const keys = SORT_KEYS[s.ctx.type]
+            const [key, order = 'desc'] = args
+            if (keys.length === 1) fail(`sort: ${SEARCH_TYPE_INFO[s.ctx.type].singular} search can only be ordered by best match`)
+            else if (!isSortKey(s.ctx.type, key)) fail(`sort: expected ${keys.join(' | ')}`)
+            else if (order !== 'asc' && order !== 'desc') fail('sort: order must be asc|desc')
+            else search({ ...s.ctx, sort: key, order, page: 1 })
+            break
+          }
+          case 'ls': {
+            const entry = onScreen()
+            if (entry) search(entry.ctx, entry)
+            break
+          }
+          case 'view':
+          case 'open':
+          case 'yank': {
+            const picked = pickItem(args[0])
+            if (!picked) break
+            const { view, index } = picked
+            patch.sel = index
+            patch.pick = true
+            const name = view.prefix + view.title.trim()
+            if (command === 'view') {
+              print([line([seg('→ ', C.green), seg('previewing ', C.desc), seg(name, C.green, { bold: true })])])
+            } else if (command === 'open') {
+              window.open(view.url, '_blank', 'noopener')
+              print([line([seg('↗ ', C.green), seg('opening ', C.desc), seg(view.url, C.cyan, { underline: true })])])
+            } else {
+              copy(view.yank.text)
+              print(
+                view.yank.shell
+                  ? [
+                      line([seg('$ ', C.dim), seg(view.yank.shell, C.white)]),
+                      line([seg('  copied to clipboard — paste into your real shell', C.dim)]),
+                    ]
+                  : [line([seg(`copied ${view.yank.label} `, C.dim), seg(view.yank.text, C.white)])],
+              )
+            }
+            break
+          }
+          case 'token': {
+            if (args[0] === 'set') {
+              const token = args[1]
+              if (!token) fail('token set: missing token')
+              else if (!looksLikeToken(token)) fail("token: that doesn't look like a GitHub token (ghp_… or github_pat_…)")
+              else {
+                setGitHubToken(token)
+                print([
+                  line([seg('[ ok ] ', C.green), seg(`token ${maskSecret(token)} saved in this browser · limit 30/min`, C.desc)]),
+                  line([seg('[info] ', C.cyan), seg("sent only to api.github.com. don't use a token with write access.", C.desc)]),
+                ])
+              }
+              break
+            }
+            if (args[0] === 'rm') {
+              if (!savedToken) fail('token: none saved')
+              else {
+                setGitHubToken(null)
+                print([line([seg('[ ok ] ', C.green), seg(`token removed${hasBuildToken() ? ' · using the build-time token' : ' · limit 10/min'}`, C.desc)])])
+              }
+              break
+            }
+            print(
+              hasToken
+                ? [line([
+                    seg('token ', C.dim),
+                    seg(savedToken ? maskSecret(savedToken) : 'from build', C.white),
+                    seg(' · 30 searches/min', C.dim),
+                    ...(savedToken ? [seg(' · ', C.dim), seg('token rm', C.green, { action: { type: 'fill', text: 'token rm' } })] : []),
+                  ])]
+                : [
+                    line([seg('no token · 10 searches/min · no code or semantic issue search', C.amber)]),
+                    line([
+                      seg('  create a fine-grained token with no extra permissions: ', C.dim),
+                      seg(NEW_TOKEN_URL.replace('https://', ''), C.cyan, { underline: true, action: { type: 'openUrl', url: NEW_TOKEN_URL } }),
+                    ]),
+                    line([seg('  then ', C.dim), seg('token set <pat>', C.green, { action: { type: 'fill', text: 'token set ' } })]),
+                  ],
             )
-            if (page > pages && (entry.data?.total_count ?? 0) > pages * entry.ctx.perPage) {
-              out.push({ kind: 'lines', id: newId(), at, lines: [capHint('  github returns only the first 1,000 results — narrow with ')] })
-            }
             break
           }
-          search({ ...entry.ctx, page })
-          break
-        }
-        case 'sort': {
-          if (!s.ctx) {
-            fail('no previous search — run find <terms> first')
-            break
-          }
-          const [key, order = 'desc'] = args
-          if (!isSortKey(key)) fail(`sort: expected ${SORT_KEYS.join(' | ')}`)
-          else if (order !== 'asc' && order !== 'desc') fail('sort: order must be asc|desc')
-          else search({ ...s.ctx, sort: key, order, page: 1 })
-          break
-        }
-        case 'ls': {
-          const entry = onScreen()
-          if (entry) search(entry.ctx, entry)
-          break
-        }
-        case 'view':
-        case 'open':
-        case 'yank': {
-          const picked = pickItem(args[0])
-          if (!picked) break
-          const { item, index } = picked
-          patch.sel = index
-          patch.pick = true
-          if (command === 'view') {
-            print([line([seg('→ ', C.green), seg('previewing ', C.desc), seg(item.full_name, C.green, { bold: true })])])
-          } else if (command === 'open') {
-            window.open(item.html_url, '_blank', 'noopener')
-            print([line([seg('↗ ', C.green), seg('opening ', C.desc), seg(item.html_url, C.cyan, { underline: true })])])
-          } else {
-            copy(item.clone_url)
+          case 'rate': {
+            const filled = Math.round((remaining / limit) * 20)
             print([
-              line([seg('$ ', C.dim), seg(`git clone ${item.clone_url}`, C.white)]),
-              line([seg('  copied to clipboard — paste into your real shell', C.dim)]),
+              line([
+                seg('quota  ', C.dim),
+                seg('█'.repeat(filled), remaining ? C.green : C.red),
+                seg('░'.repeat(20 - filled), C.faint),
+                seg(`  ${remaining}/${limit} left${quota ? ` · resets in ${formatCountdown(quota.resetAt.getTime() - at)}` : ''}`, C.desc),
+              ]),
+              line([seg('limit  ', C.dim), seg(`${limit}/min · ${resource.replace('_', ' ')} · ${hasToken ? 'token' : 'anonymous'}`, C.desc)]),
             ])
+            break
           }
-          break
-        }
-        case 'token': {
-          if (args[0] === 'set') {
-            const token = args[1]
-            if (!token) fail('token set: missing token')
-            else if (!looksLikeToken(token)) fail("token: that doesn't look like a GitHub token (ghp_… or github_pat_…)")
-            else {
-              setGitHubToken(token)
+          case 'history':
+            print(
+              history.length
+                ? history.map((h, i) =>
+                    line([
+                      seg(`${padStart(String(i + 1), 4)}  `, C.dim),
+                      ...highlight(h).map((x) => ({ ...x, action: { type: 'fill' as const, text: h } })),
+                    ]),
+                  )
+                : [line([seg('(empty)', C.dim)])],
+            )
+            break
+          case 'whoami':
+            print([
+              hasToken
+                ? line([seg('authenticated via token', C.desc), seg(` · ${limit} searches/min`, C.desc)])
+                : line([seg('guest', C.white), seg(` (anonymous) · ${limit} searches/min`, C.desc)]),
+            ])
+            break
+          case 'help': {
+            const topic = args[0] && searchTypeOf(args[0])
+            if (topic) {
+              const flags = Object.keys(FLAGS[topic]).filter((f) => f.startsWith('--'))
               print([
-                line([seg('[ ok ] ', C.green), seg(`token ${maskSecret(token)} saved in this browser · limit 30/min`, C.desc)]),
-                line([seg('[info] ', C.cyan), seg("sent only to api.github.com. don't use a token with write access.", C.desc)]),
+                line([seg(SEARCH_TYPE_INFO[topic].label, C.white, { bold: true }), seg(` — ${COMMAND_FOR[topic]}`, C.dim)]),
+                line([seg('usage: ', C.dim), ...highlight(USAGE[topic])]),
+                line([seg('flags: ', C.dim), seg([...flags, '--sort', '--order', '--limit'].join(' '), C.cyan)]),
+                line([seg('sort:  ', C.dim), seg(SORT_KEYS[topic].join(' · '), C.desc)]),
+                line([seg('e.g.   ', C.dim), ...highlight(SEARCH_TYPE_INFO[topic].placeholder.replace(/^.*e\.g\. /, `${COMMAND_FOR[topic]} ${topic === 'labels' ? 'vercel/next.js ' : ''}`))]),
               ])
+              break
             }
+            const help = helpLines()
+            print(help.lines, help.mobile)
             break
           }
-          if (args[0] === 'rm') {
-            if (!savedToken) fail('token: none saved')
-            else {
-              setGitHubToken(null)
-              print([line([seg('[ ok ] ', C.green), seg(`token removed${hasBuildToken() ? ' · using the build-time token' : ' · limit 10/min'}`, C.desc)])])
-            }
-            break
-          }
-          print(
-            hasToken
-              ? [line([
-                  seg('token ', C.dim),
-                  seg(savedToken ? maskSecret(savedToken) : 'from build', C.white),
-                  seg(' · 30 searches/min', C.dim),
-                  ...(savedToken ? [seg(' · ', C.dim), seg('token rm', C.green, { action: { type: 'fill', text: 'token rm' } })] : []),
-                ])]
-              : [
-                  line([seg('no token · 10 searches/min', C.amber)]),
-                  line([
-                    seg('  create a fine-grained token with no extra permissions: ', C.dim),
-                    seg(NEW_TOKEN_URL.replace('https://', ''), C.cyan, { underline: true, action: { type: 'openUrl', url: NEW_TOKEN_URL } }),
-                  ]),
-                  line([seg('  then ', C.dim), seg('token set <pat>', C.green, { action: { type: 'fill', text: 'token set ' } })]),
-                ],
-          )
-          break
-        }
-        case 'rate': {
-          const filled = Math.round((remaining / limit) * 20)
-          print([
-            line([
-              seg('quota  ', C.dim),
-              seg('█'.repeat(filled), remaining ? C.green : C.red),
-              seg('░'.repeat(20 - filled), C.faint),
-              seg(`  ${remaining}/${limit} left${quota ? ` · resets in ${formatCountdown(quota.resetAt.getTime() - at)}` : ''}`, C.desc),
-            ]),
-            line([seg('limit  ', C.dim), seg(hasToken ? `${limit}/min (token)` : `${limit}/min (anonymous)`, C.desc)]),
-          ])
-          break
-        }
-        case 'history':
-          print(
-            history.length
-              ? history.map((h, i) =>
-                  line([
-                    seg(`${padStart(String(i + 1), 4)}  `, C.dim),
-                    ...highlight(h).map((x) => ({ ...x, action: { type: 'fill' as const, text: h } })),
-                  ]),
-                )
-              : [line([seg('(empty)', C.dim)])],
-          )
-          break
-        case 'whoami':
-          print([
-            hasToken
-              ? line([seg('authenticated via token', C.desc), seg(` · ${limit} searches/min`, C.desc)])
-              : line([seg('guest', C.white), seg(` (anonymous) · ${limit} searches/min`, C.desc)]),
-          ])
-          break
-        case 'help': {
-          const help = helpLines()
-          print(help.lines, help.mobile)
-          break
-        }
-        case 'clear':
-          setS((prev) => ({ ...prev, ...patch, entries: [] }))
-          return
-        case 'exit':
-          print([line([
-            seg('logout: this shell is the product. try ', C.dim),
-            seg('clear', C.green, { action: { type: 'run', command: 'clear' } }),
-            seg(' instead.', C.dim),
-          ])])
-          break
-        default: {
-          fail(`command not found: ${first}`)
-          const suggestion = suggestCommand(first)
-          if (suggestion) {
+          case 'clear':
+            setS((prev) => ({ ...prev, ...patch, entries: [] }))
+            return
+          case 'exit':
             print([line([
-              seg('  did you mean ', C.dim),
-              seg(suggestion, C.green, { bold: true, action: { type: 'fill', text: `${suggestion} ` } }),
-              seg('?', C.dim),
+              seg('logout: this shell is the product. try ', C.dim),
+              seg('clear', C.green, { action: { type: 'run', command: 'clear' } }),
+              seg(' instead.', C.dim),
             ])])
+            break
+          default: {
+            fail(`command not found: ${first}`)
+            const suggestion = suggestCommand(first)
+            if (suggestion) {
+              print([line([
+                seg('  did you mean ', C.dim),
+                seg(suggestion, C.green, { bold: true, action: { type: 'fill', text: `${suggestion} ` } }),
+                seg('?', C.dim),
+              ])])
+            }
           }
         }
       }
@@ -483,9 +514,9 @@ export function Terminal() {
   function complete() {
     const before = s.input.slice(0, s.caret)
     const after = s.input.slice(s.caret)
-    const offset = live?.data ? pageOffset(live.ctx) : 0
-    const ranks = live?.status === 'done' ? items.map((_, i) => String(offset + i + 1)) : []
-    const { word, candidates } = completionCandidates(before, ranks)
+    const offset = live ? pageOffset(live.ctx) : 0
+    const ranks = items.map((_, i) => String(offset + i + 1))
+    const { word, candidates } = completionCandidates(before, { ranks, sortType: s.ctx?.type })
     if (!candidates.length) return
 
     const replaced = (w: string) => before.slice(0, before.length - word.length) + w
@@ -520,10 +551,9 @@ export function Terminal() {
 
   function pickAct(action: PickAction) {
     if (!items.length) return setS((prev) => ({ ...prev, pick: false }))
-    const rank = pageOffset(live!.ctx) + s.sel + 1
     if (action === 'down') setS((prev) => ({ ...prev, sel: Math.min(items.length - 1, prev.sel + 1) }))
     else if (action === 'up') setS((prev) => ({ ...prev, sel: Math.max(0, prev.sel - 1) }))
-    else if (action === 'open' || action === 'yank') exec(`${action} ${rank}`)
+    else if (action === 'open' || action === 'yank') exec(`${action} ${selectedRank}`)
     else if (action === 'next' || action === 'prev') exec(action)
     else setS((prev) => ({ ...prev, pick: false }))
   }
@@ -629,15 +659,15 @@ export function Terminal() {
   const quotaBar = `${'▮'.repeat(Math.round((remaining / limit) * 10))}${'▯'.repeat(10 - Math.round((remaining / limit) * 10))}`
   const quotaText = <span style={{ color: quotaColor }}>{quotaBar} {remaining}/{limit}</span>
 
-  const selectedRank = selected && live ? pageOffset(live.ctx) + Math.min(s.sel, items.length - 1) + 1 : 0
   const pickHint = pickOn
     ? layout === 'd'
       ? [
-          seg(' PICK ', C.bg, { bg: C.green, bold: true }), seg(`  ${Math.min(s.sel, items.length - 1) + 1}/${items.length}   `, C.green),
-          seg('j/k', C.white), seg(' move   ', C.dim), seg('↵', C.white), seg(' open   ', C.dim), seg('y', C.white), seg(' yank url   ', C.dim),
+          seg(' PICK ', C.bg, { bg: C.green, bold: true }), seg(`  ${selIndex + 1}/${items.length}   `, C.green),
+          seg('j/k', C.white), seg(' move   ', C.dim), seg('↵', C.white), seg(' open   ', C.dim), seg('y', C.white),
+          seg(` yank ${selected?.yank.label ?? ''}   `, C.dim),
           seg('n/p', C.white), seg(' page   ', C.dim), seg('q', C.white), seg(' quit · or just start typing', C.dim),
         ]
-      : [seg(' PICK ', C.bg, { bg: C.green, bold: true }), seg(`  ${Math.min(s.sel, items.length - 1) + 1}/${items.length}  `, C.green), seg('keys below · tap a row', C.dim)]
+      : [seg(' PICK ', C.bg, { bg: C.green, bold: true }), seg(`  ${selIndex + 1}/${items.length}  `, C.green), seg('keys below · tap a row', C.dim)]
     : null
 
   const prompt = (
@@ -688,7 +718,7 @@ export function Terminal() {
         <div
           key={i}
           onClick={l.action ? () => act(l.action!) : undefined}
-          className="whitespace-pre-wrap break-words"
+          className="whitespace-pre-wrap wrap-break-word"
           style={{ minHeight: '1.55em', background: l.bg, cursor: l.action ? 'pointer' : undefined }}
         >
           <Segs segs={l.segs} act={act} />
@@ -708,7 +738,7 @@ export function Terminal() {
   if (layout === 'm') {
     const keys: [string, Key][] = pickOn
       ? [['↑', 'pick:up'], ['↓', 'pick:down'], ['OPEN ↗', 'pick:open'], ['YANK', 'pick:yank'], ['PREV', 'pick:prev'], ['NEXT', 'pick:next'], ['QUIT', 'pick:quit']]
-      : [['TAB', 'tab'], ['↑', 'up'], ['↓', 'down'], ['ESC', 'esc'], ['^C', 'ctrlc'], ['^L', 'ctrll'], ['-', 'ins:-'], ['>', 'ins:>'], [':', 'ins::'], ['↵', 'enter']]
+      : [['TAB', 'tab'], ['↑', 'up'], ['↓', 'down'], ['ESC', 'esc'], ['^C', 'ctrlc'], ['^L', 'ctrll'], ['-', 'ins:-'], ['>', 'ins:>'], [':', 'ins::'], ['/', 'ins:/'], ['↵', 'enter']]
     return (
       <div className="ghs relative flex h-dvh flex-col overflow-hidden" style={{ fontSize: 11, lineHeight: 1.5 }}>
         {crt}
@@ -749,9 +779,9 @@ export function Terminal() {
   return (
     <div className="ghs relative flex h-dvh flex-col overflow-hidden" style={{ fontSize: 13, lineHeight: 1.55 }}>
       {crt}
-      <div className="flex h-[34px] flex-none items-center gap-2 px-3.5 text-xs" style={{ background: C.bar, borderBottom: `1px solid ${C.border}` }}>
-        <div aria-hidden className="flex gap-[7px]">
-          {[0, 1, 2].map((i) => <div key={i} className="size-[11px] rounded-full" style={{ background: '#26382d' }} />)}
+      <div className="flex h-8.5 flex-none items-center gap-2 px-3.5 text-xs" style={{ background: C.bar, borderBottom: `1px solid ${C.border}` }}>
+        <div aria-hidden className="flex gap-1.75">
+          {[0, 1, 2].map((i) => <div key={i} className="size-2.75 rounded-full" style={{ background: '#26382d' }} />)}
         </div>
         <span className="flex-1 text-center" style={{ color: C.dim }}>ghs — {hasToken ? 'token' : 'guest'}@tty0</span>
         {quotaText}
@@ -760,9 +790,8 @@ export function Terminal() {
         {scrollback}
         <Preview
           ctx={s.ctx}
-          item={selected}
+          view={selected}
           rank={selectedRank}
-          now={now}
           yanked={s.yanked}
           onOpen={() => exec(`open ${selectedRank}`)}
           onYank={() => exec(`yank ${selectedRank}`)}
@@ -775,7 +804,7 @@ export function Terminal() {
         </span>
         <span className="px-2.5">[ghs] 0:search* 1:preview</span>
         <span className="ml-auto px-2.5">
-          {s.ctx && `${sortLabel(s.ctx)} · ${live?.data ? `p${s.ctx.page}/${totalPages(live)} · ` : ''}`}
+          {s.ctx && `${s.ctx.type} · ${sortLabel(s.ctx)} · ${live?.data ? `p${s.ctx.page}/${totalPages(live)} · ` : ''}`}
           quota {remaining}/{limit}
           {quota && quota.remaining < quota.limit && ` · reset ${formatCountdown(quota.resetAt.getTime() - now)}`}
           {hasToken ? ' · token' : ' · anon'}
@@ -844,12 +873,13 @@ function Cursor({ on, caret, ch }: { on: boolean; caret: number; ch: string }) {
 }
 
 const CHEAT: [string, string][] = [
-  ['find', 'search repositories'],
+  ['find', 'repositories'],
+  ['code · issues', 'code, issues and PRs'],
+  ['commits · users', 'commits, people and orgs'],
+  ['topics · labels', 'topics, repo labels'],
   ['tab', 'complete cmd / flag / value'],
-  ['↑ ↓', 'history'],
-  ['→', 'accept suggestion'],
+  ['↑ ↓ · →', 'history · accept suggestion'],
   ['esc', 'pick mode'],
-  ['^L', 'clear screen'],
   ['help', 'everything else'],
 ]
 
@@ -857,9 +887,8 @@ const NO_SIGNAL = '   ┌──────────────┐\n   │  
 
 interface PreviewProps {
   ctx: SearchContext | null
-  item: RepositorySearchResultItem | undefined
+  view: ResultView | undefined
   rank: number
-  now: number
   yanked: boolean
   onOpen: () => void
   onYank: () => void
@@ -867,22 +896,9 @@ interface PreviewProps {
 }
 
 /** The tmux-style right pane: compiled query and the selected result */
-function Preview({ ctx, item, rank, now, yanked, onOpen, onYank, act }: PreviewProps) {
+function Preview({ ctx, view, rank, yanked, onOpen, onYank, act }: PreviewProps) {
   const label = (text: string) => <span style={{ color: C.dim }}>{text}</span>
-  const facts: [string, ReactNode][] = item
-    ? [
-        ['stars', <span style={{ color: C.white }}>{formatNumber(item.stargazers_count)}</span>],
-        ['forks', formatNumber(item.forks_count)],
-        ['issues', formatShort(item.open_issues_count)],
-        ['language', <span style={{ color: C.cyan }}>{item.language ?? '—'}</span>],
-        ['license', item.license?.spdx_id ?? '—'],
-        ['branch', item.default_branch],
-        ['pushed', formatAgo(item.pushed_at, now)],
-        ['created', item.created_at.slice(0, 10)],
-        ['size', formatSize(item.size)],
-      ]
-    : []
-  if (item?.archived) facts.push(['status', <span style={{ color: C.amber }}>archived · read-only</span>])
+  const value = (text: string | number) => <span style={{ color: C.white }}>{text}</span>
 
   return (
     <div className="ghs-scroll flex w-[420px] flex-none flex-col gap-3.5 overflow-y-auto" style={{ borderLeft: `1px solid ${C.border}`, padding: '14px 20px 18px' }}>
@@ -890,49 +906,56 @@ function Preview({ ctx, item, rank, now, yanked, onOpen, onYank, act }: PreviewP
       {ctx && (
         <div className="text-xs">
           <div className="mb-0.5" style={{ color: C.dim }}>compiled query</div>
-          <div className="whitespace-pre-wrap break-words">
+          <div>{label('type = ')}{value(ctx.type)}{ctx.mode && <>{label(' · search_type = ')}{value(ctx.mode)}</>}</div>
+          {ctx.repo && <div>{label('repo = ')}{value(ctx.repo)}</div>}
+          <div className="whitespace-pre-wrap wrap-break-word">
             {label('q = ')}
             <Segs segs={highlight(`find ${ctx.q}`).slice(2)} act={act} />
           </div>
-          <div style={{ color: C.dim }}>
-            sort = <span style={{ color: C.white }}>{sortLabel(ctx)}</span> · per_page = <span style={{ color: C.white }}>{ctx.perPage}</span>
-          </div>
+          <div>{label('sort = ')}{value(sortLabel(ctx))}{label(' · per_page = ')}{value(ctx.perPage)}</div>
         </div>
       )}
-      {item ? (
+      {view ? (
         <>
           <div className="flex justify-between text-xs" style={{ color: C.dim }}>
             <span>── target ──</span>
             <span>#{String(rank).padStart(2, '0')}</span>
           </div>
-          <div className="break-all" style={{ fontSize: 17, lineHeight: 1.3 }}>
-            {label(`${repoOwner(item)}/`)}
-            <span style={{ color: C.green, fontWeight: 700, textShadow: '0 0 10px rgba(77,255,154,.5)' }}>{item.name}</span>
+          <div className="wrap-break-word" style={{ fontSize: 17, lineHeight: 1.3 }}>
+            {label(view.prefix)}
+            <span
+              style={{
+                color: view.titleColor ?? C.green,
+                background: view.titleBg,
+                fontWeight: 700,
+                textShadow: view.titleBg ? 'none' : '0 0 10px rgba(77,255,154,.5)',
+              }}
+            >
+              {view.title}
+            </span>
+            <Segs segs={view.badges} act={act} />
           </div>
-          {item.description && <div className="text-pretty" style={{ color: C.desc }}>{item.description}</div>}
-          <div className="grid grid-cols-[72px_1fr] gap-x-3 gap-y-0.5 text-xs">
-            {facts.map(([k, v]) => (
-              <div key={k} className="contents">
-                {label(k)}
-                <span>{v}</span>
+          {view.detail && <div className="text-pretty" style={{ color: C.desc }}>{view.detail}</div>}
+          <div className="grid grid-cols-[76px_1fr] gap-x-3 gap-y-0.5 text-xs">
+            {view.facts.map((f) => (
+              <div key={f.label} className="contents">
+                {label(f.label)}
+                <span
+                  onClick={f.url ? () => act({ type: 'openUrl', url: f.url! }) : undefined}
+                  className={f.url ? 'cursor-pointer truncate underline' : 'wrap-break-word'}
+                  style={{ color: f.color }}
+                >
+                  {f.value}
+                </span>
               </div>
             ))}
           </div>
-          {item.homepage && (
-            <div className="truncate text-xs">
-              {label('homepage ')}
-              <span
-                onClick={() => act({ type: 'openUrl', url: item.homepage! })}
-                className="cursor-pointer underline"
-                style={{ color: C.cyan }}
-              >
-                {item.homepage}
-              </span>
-            </div>
+          {view.tags.length > 0 && (
+            <div className="text-xs leading-6 whitespace-pre-wrap"><Segs segs={view.tags} act={act} /></div>
           )}
-          {item.topics && item.topics.length > 0 && (
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs" style={{ color: C.amber }}>
-              {item.topics.map((t) => <span key={t}>#{t}</span>)}
+          {view.fragments.length > 0 && (
+            <div className="overflow-x-auto p-2.5 text-xs whitespace-pre" style={{ background: '#0d1510', border: `1px solid ${C.border}` }}>
+              {view.fragments.map((f, i) => <div key={i} style={{ minHeight: '1.5em' }}><Segs segs={f} act={act} /></div>)}
             </div>
           )}
           <button
@@ -942,7 +965,7 @@ function Preview({ ctx, item, rank, now, yanked, onOpen, onYank, act }: PreviewP
             style={{ background: '#0d1510', border: `1px solid ${C.border}` }}
           >
             <span className="min-w-0 truncate">
-              {label('$ ')}git clone {item.clone_url}
+              {view.yank.shell ? <>{label('$ ')}{view.yank.shell}</> : <>{label(`${view.yank.label}  `)}{view.yank.text}</>}
             </span>
             <span className="flex-none" style={{ color: yanked ? C.green : C.dim }}>{yanked ? 'copied ✓' : 'y yank'}</span>
           </button>
@@ -954,7 +977,7 @@ function Preview({ ctx, item, rank, now, yanked, onOpen, onYank, act }: PreviewP
         <div className="flex flex-col gap-3.5" style={{ color: C.dim }}>
           <div className="whitespace-pre" style={{ color: C.faint, lineHeight: 1.3 }}>{NO_SIGNAL}</div>
           <div>
-            no target. run <span style={{ color: C.green }}>find &lt;terms&gt;</span>; the selected result shows up here.
+            no target. run a search, e.g. <span style={{ color: C.green }}>find &lt;terms&gt;</span>; the selected result shows up here.
           </div>
           <div className="grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-[3px] text-xs">
             {CHEAT.map(([k, d]) => (

@@ -1,5 +1,6 @@
-import type { RepositorySearchParams, RepositorySearchSort, SearchOrder } from '../types/github'
+import type { SearchEndpoints, SearchOrder, SearchType } from '../types/github'
 import { formatCount } from './format'
+import { parseRepositoryName } from './repositoryName'
 
 // Phosphor palette of the ghs terminal
 export const C = {
@@ -14,6 +15,7 @@ export const C = {
   red: '#ff6b6b',
   white: '#eafff1',
   yellow: '#ffe38a',
+  purple: '#c9a2ff',
   border: '#16261c',
   bar: '#0b110d',
 } as const
@@ -49,51 +51,181 @@ export function line(segs: Seg[], options: Omit<Line, 'segs'> = {}): Line {
   return { segs, ...options }
 }
 
+/** The command that runs each kind of search */
+export const SEARCH_COMMANDS = {
+  find: 'repositories',
+  code: 'code',
+  issues: 'issues',
+  commits: 'commits',
+  users: 'users',
+  topics: 'topics',
+  labels: 'labels',
+} as const satisfies Record<string, SearchType>
+
+export const COMMAND_FOR: { readonly [T in SearchType]: string } = {
+  repositories: 'find', code: 'code', issues: 'issues', commits: 'commits', users: 'users', topics: 'topics', labels: 'labels',
+}
+
 export const COMMANDS = [
-  'find', 'next', 'prev', 'page', 'sort', 'ls', 'view', 'open', 'yank',
+  ...Object.keys(SEARCH_COMMANDS),
+  'next', 'prev', 'page', 'sort', 'ls', 'view', 'open', 'yank',
   'token', 'rate', 'history', 'clear', 'help', 'whoami',
-] as const
+]
 
 export const ALIASES: Record<string, string> = {
-  f: 'find', search: 'find', n: 'next', p: 'prev', clone: 'yank', y: 'yank',
-  o: 'open', v: 'view', h: 'help', '?': 'help', cls: 'clear', logout: 'exit',
+  f: 'find', search: 'find', repos: 'find', issue: 'issues', commit: 'commits', user: 'users',
+  topic: 'topics', label: 'labels', n: 'next', p: 'prev', clone: 'yank', y: 'yank', o: 'open',
+  v: 'view', h: 'help', '?': 'help', cls: 'clear', logout: 'exit',
 }
 
 const KNOWN = new Set<string>([...COMMANDS, ...Object.keys(ALIASES), 'exit'])
 
-/** Sort keys as typed in the shell; `best` means GitHub's best-match ranking */
-export const SORT_KEYS = ['best', 'stars', 'forks', 'updated', 'help-wanted'] as const
-export type SortKey = (typeof SORT_KEYS)[number]
+/** The search type a command runs, if it runs one */
+export function searchTypeOf(command: string): SearchType | undefined {
+  const name = ALIASES[command] ?? command
+  return Object.hasOwn(SEARCH_COMMANDS, name) ? SEARCH_COMMANDS[name as keyof typeof SEARCH_COMMANDS] : undefined
+}
 
-const API_SORT: Record<Exclude<SortKey, 'best'>, RepositorySearchSort> = {
-  stars: 'stars',
-  forks: 'forks',
-  updated: 'updated',
-  'help-wanted': 'help-wanted-issues',
+/**
+ * Sort keys as typed in the shell; `best` means GitHub's best-match ranking.
+ * The others are the API's own names, except the shorter `help-wanted`.
+ */
+export const SORT_KEYS: { readonly [T in SearchType]: readonly string[] } = {
+  repositories: ['best', 'stars', 'forks', 'updated', 'help-wanted'],
+  code: ['best'],
+  issues: [
+    'best', 'created', 'updated', 'comments', 'interactions', 'reactions', 'reactions-+1', 'reactions--1',
+    'reactions-smile', 'reactions-tada', 'reactions-heart', 'reactions-thinking_face',
+  ],
+  commits: ['best', 'author-date', 'committer-date'],
+  users: ['best', 'followers', 'repositories', 'joined'],
+  topics: ['best'],
+  labels: ['best', 'created', 'updated'],
 }
 
 export const PAGE_SIZES = [10, 20, 50, 100] as const
 
 const LANGS = ['rust', 'go', 'typescript', 'javascript', 'python', 'c', 'c++', 'zig']
-const FLAGS: Record<string, 'value' | 'bool'> = {
-  '--lang': 'value', '-l': 'value', '--stars': 'value', '-s': 'value', '--pushed': 'value',
-  '--topic': 'value', '-t': 'value', '--user': 'value', '-u': 'value', '--sort': 'value',
-  '--order': 'value', '--limit': 'value', '-n': 'value', '--no-archived': 'bool',
+const COUNTS = ['>100', '>1k', '>5k', '>10k']
+const AGES = ['<24h', '<7d', '<30d', '<1y']
+
+type Compiled = { qualifier: string } | { mode: 'semantic' | 'hybrid' } | { repo: string }
+
+interface FlagDef {
+  /** Suggested values; a flag without `compile` taking a value is a switch */
+  values?: readonly string[]
+  takesValue: boolean
+  compile: (value: string, now: number) => Compiled
 }
-const STAR_VALUES = ['>100', '>1k', '>5k', '>10k']
-const LIMIT_VALUES = PAGE_SIZES.map(String)
-const FLAG_VALUES: Record<string, readonly string[]> = {
-  '--lang': LANGS, '-l': LANGS, '--sort': SORT_KEYS, '--order': ['asc', 'desc'],
-  '--limit': LIMIT_VALUES, '-n': LIMIT_VALUES, '--pushed': ['<24h', '<7d', '<30d', '<1y'],
-  '--stars': STAR_VALUES, '-s': STAR_VALUES,
+
+const DAYS_PER_UNIT: Record<string, number> = { h: 1 / 24, d: 1, w: 7, m: 30, y: 365 }
+
+/** `<30d` → `>2026-08-29`, i.e. more recent than 30 days ago */
+function since(value: string, now: number): string {
+  const m = /^<(\d+)([hdwmy])$/.exec(value)
+  if (!m) return value
+  return `>${new Date(now - Number(m[1]) * DAYS_PER_UNIT[m[2]] * 864e5).toISOString().slice(0, 10)}`
 }
-const QUALIFIERS = ['language:', 'stars:>', 'pushed:>', 'topic:', 'user:', 'license:', 'archived:false']
+
+/** `>5k` → `>5000` */
+function count(value: string): string {
+  return value.replace(/(\d+)k/gi, (_, n: string) => String(Number(n) * 1000))
+}
+
+const valued = (name: string, transform: (v: string, now: number) => string = (v) => v, values?: readonly string[]): FlagDef => ({
+  values,
+  takesValue: true,
+  compile: (v, now) => ({ qualifier: `${name}:${transform(v, now)}` }),
+})
+const toggle = (qualifier: string): FlagDef => ({ takesValue: false, compile: () => ({ qualifier }) })
+const lower = (v: string) => v.toLowerCase()
+/** A value with spaces needs quotes, unless it was typed with them */
+const quoted = (v: string) => (/\s/.test(v) && !/^".*"$/.test(v) ? `"${v}"` : v)
+const withAliases = (defs: Record<string, FlagDef>, aliases: Record<string, string>) => {
+  const out = { ...defs }
+  for (const [short, long] of Object.entries(aliases)) out[short] = defs[long]
+  return out
+}
+
+/** The flags each search command accepts, besides --sort, --order and --limit */
+export const FLAGS: { readonly [T in SearchType]: Readonly<Record<string, FlagDef>> } = {
+  repositories: withAliases({
+    '--lang': valued('language', lower, LANGS),
+    '--stars': valued('stars', count, COUNTS),
+    '--pushed': valued('pushed', since, AGES),
+    '--topic': valued('topic', lower),
+    '--user': valued('user'),
+    '--no-archived': toggle('archived:false'),
+  }, { '-l': '--lang', '-s': '--stars', '-t': '--topic', '-u': '--user' }),
+  code: withAliases({
+    '--lang': valued('language', lower, LANGS),
+    '--repo': valued('repo'),
+    '--path': valued('path'),
+    '--ext': valued('extension'),
+    '--user': valued('user'),
+  }, { '-l': '--lang', '-r': '--repo', '-u': '--user' }),
+  issues: withAliases({
+    '--repo': valued('repo'),
+    '--state': valued('is', lower, ['open', 'closed']),
+    '--pr': toggle('is:pr'),
+    '--issue': toggle('is:issue'),
+    '--author': valued('author'),
+    '--label': valued('label', quoted),
+    '--lang': valued('language', lower, LANGS),
+    '--semantic': { takesValue: false, compile: () => ({ mode: 'semantic' }) },
+    '--hybrid': { takesValue: false, compile: () => ({ mode: 'hybrid' }) },
+  }, { '-r': '--repo', '-a': '--author', '-l': '--lang' }),
+  commits: withAliases({
+    '--repo': valued('repo'),
+    '--author': valued('author'),
+    '--committed': valued('committer-date', since, AGES),
+    '--user': valued('user'),
+  }, { '-r': '--repo', '-a': '--author', '-u': '--user' }),
+  users: withAliases({
+    '--location': valued('location', quoted),
+    '--followers': valued('followers', count, COUNTS),
+    '--repos': valued('repos', count, COUNTS),
+    '--type': valued('type', lower, ['user', 'org']),
+    '--lang': valued('language', lower, LANGS),
+  }, { '-l': '--lang' }),
+  topics: {
+    '--featured': toggle('is:featured'),
+    '--curated': toggle('is:curated'),
+    '--repos': valued('repositories', count, COUNTS),
+  },
+  labels: withAliases({
+    '--repo': { takesValue: true, compile: (v) => ({ repo: v }) },
+  }, { '-r': '--repo' }),
+}
+
+const COMMON_FLAGS = ['--sort', '--order', '--limit', '-n']
+
+/** Qualifiers offered by tab completion */
+const QUALIFIERS: { readonly [T in SearchType]: readonly string[] } = {
+  repositories: ['language:', 'stars:>', 'pushed:>', 'topic:', 'user:', 'license:', 'archived:false'],
+  code: ['language:', 'repo:', 'path:', 'extension:', 'filename:', 'user:'],
+  issues: ['repo:', 'is:open', 'is:closed', 'is:pr', 'is:issue', 'author:', 'label:', 'assignee:', 'created:>'],
+  commits: ['repo:', 'author:', 'committer-date:>', 'author-date:>', 'user:'],
+  users: ['location:', 'followers:>', 'repos:>', 'type:user', 'type:org', 'language:'],
+  topics: ['is:featured', 'is:curated', 'repositories:>'],
+  labels: [],
+}
+
+export const USAGE: { readonly [T in SearchType]: string } = {
+  repositories: 'find <terms> [--lang L] [--stars >N] [--pushed <30d] [--sort key]',
+  code: 'code <terms> [--lang L] [--repo owner/name] [--path dir] [--ext ts]',
+  issues: 'issues <terms> [--repo owner/name] [--state open] [--pr|--issue] [--author U]',
+  commits: 'commits <terms> [--repo owner/name] [--author U] [--committed <30d]',
+  users: 'users <terms> [--location L] [--followers >N] [--type user|org]',
+  topics: 'topics <terms> [--featured] [--curated] [--repos >N]',
+  labels: 'labels <owner/name> <terms> [--sort created|updated]',
+}
 
 export const EXAMPLES = [
   'find vector database --lang rust --stars >5k',
-  'find terminal emulator --sort stars',
-  'find react --pushed <30d',
-  'find llm --stars >10k --sort updated',
+  'issues memory leak --repo vercel/next.js --state open',
+  'users tom --location berlin --followers >100',
+  'labels vercel/next.js bug',
 ]
 
 /** Whitespace-separated words, keeping a quoted phrase in one piece */
@@ -103,32 +235,46 @@ export function tokenize(input: string): string[] {
   return input.match(TOKEN) ?? []
 }
 
-/** A repository search as the shell tracks it */
+/** A search as the shell tracks it */
 export interface SearchContext {
+  type: SearchType
   q: string
-  sort: SortKey
+  /** One of `SORT_KEYS[type]` */
+  sort: string
   order: SearchOrder
   perPage: number
   page: number
+  /** Label search looks in this repository ("owner/name") */
+  repo?: string
+  /** Semantic or hybrid issue search */
+  mode?: 'semantic' | 'hybrid'
 }
 
-export function toSearchParams(ctx: SearchContext): RepositorySearchParams {
+export type AnySearchParams = SearchEndpoints[SearchType]['params']
+
+/** Label search also needs the repository's id, which takes a lookup */
+export function toSearchParams(ctx: SearchContext, repositoryId?: number): AnySearchParams {
+  const sorted = ctx.sort !== 'best'
   return {
     q: ctx.q,
     // GitHub ignores the order without a sort, so leave both out for best match
-    sort: ctx.sort === 'best' ? undefined : API_SORT[ctx.sort],
-    order: ctx.sort === 'best' ? undefined : ctx.order,
+    sort: sorted ? (ctx.type === 'repositories' && ctx.sort === 'help-wanted' ? 'help-wanted-issues' : ctx.sort) : undefined,
+    order: sorted ? ctx.order : undefined,
     per_page: ctx.perPage,
     page: ctx.page,
-  }
+    ...(ctx.type === 'labels' ? { repository_id: repositoryId } : {}),
+    ...(ctx.mode ? { search_type: ctx.mode } : {}),
+  } as AnySearchParams
 }
 
 /** The request as GitHub sees it, for echoing in the terminal */
 export function describeRequest(ctx: SearchContext): string {
-  const { sort, order } = toSearchParams(ctx)
+  const { sort, order } = toSearchParams(ctx) as { sort?: string; order?: string }
   return (
-    `GET /search/repositories?q=${encodeURIComponent(ctx.q)}` +
+    (ctx.type === 'labels' ? `GET /repos/${ctx.repo} → ` : '') +
+    `GET /search/${ctx.type}?q=${encodeURIComponent(ctx.q)}` +
     (sort ? `&sort=${sort}&order=${order}` : '') +
+    (ctx.mode ? `&search_type=${ctx.mode}` : '') +
     `&per_page=${ctx.perPage}&page=${ctx.page}`
   )
 }
@@ -137,89 +283,67 @@ export function sortLabel(ctx: Pick<SearchContext, 'sort' | 'order'>): string {
   return ctx.sort === 'best' ? 'best match' : `${ctx.sort} ${ctx.order === 'desc' ? '↓' : '↑'}`
 }
 
-export type FindResult =
+export function isSortKey(type: SearchType, value: string | undefined): value is string {
+  return value !== undefined && SORT_KEYS[type].includes(value)
+}
+
+export type ParsedSearch =
   | { error: string }
-  | { q: string; sort?: SortKey; order?: SearchOrder; perPage?: number }
+  | Pick<SearchContext, 'q' | 'repo' | 'mode'> & { sort?: string; order?: SearchOrder; perPage?: number }
 
-const DAYS_PER_UNIT: Record<string, number> = { h: 1 / 24, d: 1, w: 7, m: 30, y: 365 }
-
-/** Compiles `find` arguments into a query with GitHub qualifiers */
-export function parseFind(args: string[], now: number): FindResult {
+/** Compiles a search command's arguments into a query with GitHub qualifiers */
+export function parseSearch(type: SearchType, args: string[], now: number): ParsedSearch {
+  const flags = FLAGS[type]
   const terms: string[] = []
   const qualifiers: string[] = []
-  let sort: SortKey | undefined
+  let sort: string | undefined
   let order: SearchOrder | undefined
   let perPage: number | undefined
+  let repo: string | undefined
+  let mode: 'semantic' | 'hybrid' | undefined
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]
     if (!/^-{1,2}[a-z]/i.test(arg) || arg.includes(':')) {
+      // Label search takes its repository as the first owner/name argument
+      if (type === 'labels' && repo === undefined && arg.includes('/')) repo = arg
       // `-language:go` is an exclusion qualifier, not a flag
-      if (/^-?[a-z][\w-]*:/i.test(arg)) qualifiers.push(arg)
+      else if (/^-?[a-z][\w-]*:/i.test(arg)) qualifiers.push(arg)
       else terms.push(arg)
       continue
     }
 
-    const kind = FLAGS[arg]
-    if (!kind) return { error: `unknown flag ${arg} (see help)` }
-    if (kind === 'bool') {
-      qualifiers.push('archived:false')
-      continue
-    }
-    const value = args[++i]
+    const def = flags[arg]
+    if (!def && !COMMON_FLAGS.includes(arg)) return { error: `unknown flag ${arg} (see help)` }
+    const value = def && !def.takesValue ? '' : args[++i]
     if (value === undefined) return { error: `${arg} needs a value` }
 
-    switch (arg) {
-      case '--lang':
-      case '-l':
-        qualifiers.push(`language:${value.toLowerCase()}`)
-        break
-      case '--stars':
-      case '-s':
-        qualifiers.push(`stars:${value.replace(/(\d+)k/gi, (_, n: string) => String(Number(n) * 1000))}`)
-        break
-      case '--pushed': {
-        const m = /^<(\d+)([hdwmy])$/.exec(value)
-        if (m) {
-          const since = new Date(now - Number(m[1]) * DAYS_PER_UNIT[m[2]] * 864e5)
-          qualifiers.push(`pushed:>${since.toISOString().slice(0, 10)}`)
-        } else {
-          qualifiers.push(`pushed:${value}`)
-        }
-        break
-      }
-      case '--topic':
-      case '-t':
-        qualifiers.push(`topic:${value.toLowerCase()}`)
-        break
-      case '--user':
-      case '-u':
-        qualifiers.push(`user:${value}`)
-        break
-      case '--sort':
-        if (!isSortKey(value)) return { error: `--sort expects ${SORT_KEYS.join('|')}` }
-        sort = value
-        break
-      case '--order':
-        if (value !== 'asc' && value !== 'desc') return { error: '--order expects asc|desc' }
-        order = value
-        break
-      default: {
-        const n = Number(value)
-        if (!(PAGE_SIZES as readonly number[]).includes(n)) {
-          return { error: `--limit expects ${PAGE_SIZES.join('|')}` }
-        }
-        perPage = n
-      }
+    if (arg === '--sort') {
+      if (!isSortKey(type, value)) return { error: `--sort expects ${SORT_KEYS[type].join('|')}` }
+      sort = value
+    } else if (arg === '--order') {
+      if (value !== 'asc' && value !== 'desc') return { error: '--order expects asc|desc' }
+      order = value
+    } else if (arg === '--limit' || arg === '-n') {
+      const n = Number(value)
+      if (!(PAGE_SIZES as readonly number[]).includes(n)) return { error: `--limit expects ${PAGE_SIZES.join('|')}` }
+      perPage = n
+    } else {
+      const compiled = def.compile(value, now)
+      if ('qualifier' in compiled) qualifiers.push(compiled.qualifier)
+      else if ('mode' in compiled) mode = compiled.mode
+      else repo = compiled.repo
     }
   }
 
+  if (type === 'labels') {
+    if (!repo) return { error: 'which repository? e.g. labels vercel/next.js bug' }
+    const name = parseRepositoryName(repo)
+    if (!name) return { error: `${repo} is not a repository (owner/name)` }
+    repo = `${name.owner}/${name.name}`
+  }
   if (!terms.length && !qualifiers.length) return { error: 'missing query' }
-  return { q: [...terms, ...qualifiers].join(' '), sort, order, perPage }
-}
-
-export function isSortKey(value: string | undefined): value is SortKey {
-  return (SORT_KEYS as readonly (string | undefined)[]).includes(value)
+  return { q: [...terms, ...qualifiers].join(' '), sort, order, perPage, repo, mode }
 }
 
 /** Syntax highlighting for a command line */
@@ -250,27 +374,36 @@ export function highlight(text: string): Seg[] {
   return out
 }
 
-/**
- * Tab-completion candidates for the word before the caret. `ranks` are the
- * result numbers on screen, for `open`/`view`/`yank`.
- */
-export function completionCandidates(before: string, ranks: string[]): { word: string; candidates: string[] } {
+export interface CompletionContext {
+  /** Result numbers on screen, for `open`/`view`/`yank` */
+  ranks: string[]
+  /** The type `sort` would re-sort */
+  sortType: SearchType | undefined
+}
+
+/** Tab-completion candidates for the word before the caret */
+export function completionCandidates(before: string, { ranks, sortType }: CompletionContext): { word: string; candidates: string[] } {
   const words = before.split(/\s+/)
   const word = words[words.length - 1]
   const prev = words.length > 1 ? words[words.length - 2] : undefined
   const command = ALIASES[words[0]] ?? words[0]
+  const type = searchTypeOf(command)
 
-  let candidates: readonly string[]
+  let candidates: readonly string[] = []
   if (words.length === 1) candidates = COMMANDS
-  else if (word.startsWith('-')) candidates = Object.keys(FLAGS).filter((f) => f.startsWith('--'))
-  else if (prev !== undefined && FLAG_VALUES[prev]) candidates = FLAG_VALUES[prev]
-  else if (command === 'sort' && words.length === 2) candidates = SORT_KEYS
+  else if (type && word.startsWith('-')) {
+    candidates = [...Object.keys(FLAGS[type]), ...COMMON_FLAGS].filter((f) => f.startsWith('--'))
+  } else if (type && prev === '--sort') candidates = SORT_KEYS[type]
+  else if (type && prev === '--order') candidates = ['asc', 'desc']
+  else if (type && (prev === '--limit' || prev === '-n')) candidates = PAGE_SIZES.map(String)
+  else if (type && prev && FLAGS[type][prev]?.takesValue) candidates = FLAGS[type][prev].values ?? []
+  else if (command === 'sort' && words.length === 2) candidates = sortType ? SORT_KEYS[sortType] : []
   else if (command === 'sort' && words.length === 3) candidates = ['asc', 'desc']
   else if (command === 'token' && words.length === 2) candidates = ['set', 'rm']
   else if (command === 'help') candidates = COMMANDS
   else if (['open', 'view', 'yank'].includes(command)) candidates = ranks
-  else if (/^language:/i.test(word)) candidates = LANGS.map((l) => `language:${l}`)
-  else candidates = QUALIFIERS
+  else if (type && /^language:/i.test(word)) candidates = LANGS.map((l) => `language:${l}`)
+  else if (type) candidates = QUALIFIERS[type]
 
   return { word, candidates: candidates.filter((c) => c.startsWith(word)) }
 }

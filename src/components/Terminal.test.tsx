@@ -1,16 +1,25 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GitHubApiError, searchGitHub } from '../api/github'
+import { getRepository, GitHubApiError, MissingTokenError, searchGitHub } from '../api/github'
 import { useGitHubToken } from '../hooks/useGitHubToken'
-import type { RepositorySearchResponse, RepositorySearchResultItem } from '../types/github'
+import type {
+  IssueSearchResultItem,
+  LabelSearchResultItem,
+  Repository,
+  RepositorySearchResultItem,
+  SearchResponse,
+  UserSearchResultItem,
+} from '../types/github'
 import { Terminal } from './Terminal'
 
 vi.mock('../api/github', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../api/github')>()),
   searchGitHub: vi.fn(),
+  getRepository: vi.fn(),
 }))
 
 const search = vi.mocked(searchGitHub)
+const lookUpRepository = vi.mocked(getRepository)
 
 const repo = {
   id: 1,
@@ -34,9 +43,43 @@ const repo = {
   archived: false,
 } as unknown as RepositorySearchResultItem
 
-function response(items: RepositorySearchResultItem[], total = items.length): RepositorySearchResponse {
+function response<T = RepositorySearchResultItem>(items: T[], total = items.length): SearchResponse<T> {
   return { total_count: total, incomplete_results: false, items }
 }
+
+const user = {
+  id: 2,
+  login: 'tomchristie',
+  type: 'User',
+  html_url: 'https://github.com/tomchristie',
+} as UserSearchResultItem
+
+const issue = {
+  id: 3,
+  number: 42,
+  title: 'Memory leak in dev server',
+  state: 'open',
+  html_url: 'https://github.com/vercel/next.js/pull/42',
+  repository_url: 'https://api.github.com/repos/vercel/next.js',
+  pull_request: { merged_at: '2026-09-01T00:00:00Z' },
+  user: { login: 'octocat' },
+  labels: [{ id: 1, name: 'bug', color: 'd73a4a' }],
+  comments: 7,
+  created_at: '2026-08-01T00:00:00Z',
+  updated_at: '2026-09-20T00:00:00Z',
+  closed_at: null,
+  milestone: null,
+} as unknown as IssueSearchResultItem
+
+const label = {
+  id: 4,
+  name: 'bug',
+  color: 'd73a4a',
+  default: true,
+  description: "Something isn't working",
+  url: 'https://api.github.com/repos/vercel/next.js/labels/bug',
+  archived_at: null,
+} as LabelSearchResultItem
 
 function setWidth(desktop: boolean) {
   window.matchMedia = vi.fn((query: string) => ({
@@ -70,6 +113,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers()
   search.mockReset()
+  lookUpRepository.mockReset()
 })
 
 describe('Terminal', () => {
@@ -165,6 +209,67 @@ describe('Terminal', () => {
     fireEvent.keyDown(input(), { key: 'Tab' })
 
     expect(input()).toHaveProperty('value', 'find ')
+  })
+
+  it('searches users with their own flags', async () => {
+    search.mockResolvedValue(response([user]))
+    render(<Terminal />)
+
+    await type('users tom --location berlin --followers >1k --sort followers')
+
+    expect(search).toHaveBeenCalledWith(
+      'users',
+      { q: 'tom location:berlin followers:>1000', sort: 'followers', order: 'desc', per_page: 10, page: 1 },
+      expect.anything(),
+    )
+    expect(text()).toContain('1 user')
+    expect(text()).toContain('tomchristie')
+  })
+
+  it('shows issue and pull request status', async () => {
+    search.mockResolvedValue({ ...response([issue]), search_type: 'lexical' })
+    render(<Terminal />)
+
+    await type('issues leak --repo vercel/next.js --pr')
+
+    expect(search).toHaveBeenCalledWith('issues', expect.objectContaining({ q: 'leak repo:vercel/next.js is:pr' }), expect.anything())
+    expect(text()).toContain('vercel/next.js#42')
+    expect(text()).toContain('pr merged')
+    // Yank copies the URL
+    await type('yank 1')
+    expect(text()).toContain('copied URL https://github.com/vercel/next.js/pull/42')
+  })
+
+  it("looks up the repository's id for label search", async () => {
+    lookUpRepository.mockResolvedValue({ id: 70107786 } as Repository)
+    search.mockResolvedValue(response([label]))
+    render(<Terminal />)
+
+    await type('labels vercel/next.js bug')
+
+    expect(lookUpRepository).toHaveBeenCalledWith('vercel', 'next.js', expect.anything())
+    expect(search).toHaveBeenCalledWith('labels', expect.objectContaining({ q: 'bug', repository_id: 70107786 }), expect.anything())
+    expect(text()).toContain("Something isn't working")
+  })
+
+  it('asks for a token for code search', async () => {
+    search.mockRejectedValue(new MissingTokenError('code'))
+    render(<Terminal />)
+
+    await type('code useState --lang typescript')
+
+    expect(search).toHaveBeenCalledWith('code', expect.anything(), expect.objectContaining({ textMatch: true }))
+    expect(text()).toContain('Code search needs a GitHub token')
+    expect(text()).toContain('token set <pat> to use this search')
+  })
+
+  it('only offers the sorts a search type supports', async () => {
+    search.mockResolvedValue(response([user]))
+    render(<Terminal />)
+
+    await type('users tom')
+    await type('sort stars')
+    expect(text()).toContain('sort: expected best | followers | repositories | joined')
   })
 
   it('shows extra keys on narrow screens', async () => {
