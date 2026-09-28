@@ -582,14 +582,7 @@ export type CommitSearchResponse = SearchResponse<CommitSearchResultItem>
 // ---------------------------------------------------------------------------
 
 export type AuthorAssociation =
-  | 'COLLABORATOR'
-  | 'CONTRIBUTOR'
-  | 'FIRST_TIMER'
-  | 'FIRST_TIME_CONTRIBUTOR'
-  | 'MANNEQUIN'
-  | 'MEMBER'
-  | 'NONE'
-  | 'OWNER'
+  'COLLABORATOR' | 'CONTRIBUTOR' | 'FIRST_TIMER' | 'FIRST_TIME_CONTRIBUTOR' | 'MANNEQUIN' | 'MEMBER' | 'NONE' | 'OWNER'
 
 export interface IssueLabel {
   id?: number

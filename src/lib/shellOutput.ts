@@ -52,7 +52,12 @@ export type Entry =
 export function plainText(lines: Line[]): string {
   return lines
     .filter((l) => !l.decorative)
-    .map((l) => l.segs.map((s) => s.t).join('').trim())
+    .map((l) =>
+      l.segs
+        .map((s) => s.t)
+        .join('')
+        .trim(),
+    )
     .filter(Boolean)
     .join('\n')
 }
@@ -83,7 +88,9 @@ export function announcement(entry: Entry): string | null {
     `${formatNumber(data.total_count)} ${data.total_count === 1 ? info.singular : info.plural}, page ${ctx.page} of ${totalPages(entry)}.`,
     first ? `first: ${first.prefix}${first.title.trim()}.` : '',
     'arrow keys pick a result.',
-  ].filter(Boolean).join(' ')
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 /**
@@ -119,20 +126,32 @@ export function motdLines(hasToken: boolean, date: string): Line[] {
   return [
     ...LOGO.map((l) => line([seg(l, C.green, { bold: true })], { decorative: true })),
     line([]),
-    line([seg('dowse', C.white, { bold: true }), seg(` — github search shell · ${hasToken ? 'token' : 'guest'}@tty0 · ${date}`, C.dim)]),
+    line([
+      seg('dowse', C.white, { bold: true }),
+      seg(` — github search shell · ${hasToken ? 'token' : 'guest'}@tty0 · ${date}`, C.dim),
+    ]),
     line([seg('designed and developed by ', C.faint), seg('Liao', C.desc)]),
     hasToken
       ? line([seg('[ ok ] ', C.green), seg('token in use · 30 searches/min · code search on', C.desc)])
       : line([seg('[warn] ', C.amber), seg('no token · 10 searches/min · no code search · ', C.desc), TOKEN_HINT]),
-    line([seg('[info] ', C.cyan), seg(`each query returns at most ${formatNumber(SEARCH_MAX_RESULTS)} results`, C.desc)]),
+    line([
+      seg('[info] ', C.cyan),
+      seg(`each query returns at most ${formatNumber(SEARCH_MAX_RESULTS)} results`, C.desc),
+    ]),
     line([]),
-    line([seg('search: ', C.dim), ...['find', 'code', 'issues', 'commits', 'users', 'topics', 'labels'].flatMap((c, i) => [
-      ...(i ? [seg(' · ', C.faint)] : []),
-      seg(c, C.green, { action: { type: 'run', command: `help ${c}` } }),
-    ])]),
+    line([
+      seg('search: ', C.dim),
+      ...['find', 'code', 'issues', 'commits', 'users', 'topics', 'labels'].flatMap((c, i) => [
+        ...(i ? [seg(' · ', C.faint)] : []),
+        seg(c, C.green, { action: { type: 'run', command: `help ${c}` } }),
+      ]),
+    ]),
     line([seg('try:', C.dim)]),
     ...EXAMPLES.map((x) =>
-      line([seg('  ❯ ', C.faint), ...highlight(x).map((s) => ({ ...s, action: { type: 'run' as const, command: x } }))]),
+      line([
+        seg('  ❯ ', C.faint),
+        ...highlight(x).map((s) => ({ ...s, action: { type: 'run' as const, command: x } })),
+      ]),
     ),
     line([]),
     line([
@@ -159,7 +178,11 @@ export function errorLine(message: string): Line {
 const SEARCH_HELP: [string, string, string][] = [
   ['find <terms> [flags]', 'repositories (f, repos)', '--lang --stars --pushed --topic --user --no-archived'],
   ['code <terms> [flags]', 'code · needs a token', '--lang --repo --path --ext --user'],
-  ['issues <terms> [flags]', 'issues and pull requests', '--repo --state --pr --issue --author --label --lang --semantic --hybrid'],
+  [
+    'issues <terms> [flags]',
+    'issues and pull requests',
+    '--repo --state --pr --issue --author --label --lang --semantic --hybrid',
+  ],
   ['commits <terms> [flags]', 'commits', '--repo --author --committed --user'],
   ['users <terms> [flags]', 'users and organizations', '--location --followers --repos --type --lang'],
   ['topics <terms> [flags]', 'topics', '--featured --curated --repos'],
@@ -198,18 +221,38 @@ export function helpLines(): { lines: Line[]; mobile: Line[] } {
     line([]),
     line([
       seg('keys  ', C.white, { bold: true }),
-      key('tab'), text(' complete · '), key('↑↓'), text(' history · '), key('→'), text(' accept suggestion · '),
-      key('^L'), text(' clear · '), key('^C'), text(' cancel · '), key('esc'), text(' pick mode'),
+      key('tab'),
+      text(' complete · '),
+      key('↑↓'),
+      text(' history · '),
+      key('→'),
+      text(' accept suggestion · '),
+      key('^L'),
+      text(' clear · '),
+      key('^C'),
+      text(' cancel · '),
+      key('esc'),
+      text(' pick mode'),
     ]),
     line([
       seg('pick  ', C.white, { bold: true }),
-      key('j/k'), text(' move · '), key('↵'), text(' open · '), key('y'), text(' yank · '),
-      key('n/p'), text(' page · '), key('q'), text(' quit'),
+      key('j/k'),
+      text(' move · '),
+      key('↵'),
+      text(' open · '),
+      key('y'),
+      text(' yank · '),
+      key('n/p'),
+      text(' page · '),
+      key('q'),
+      text(' quit'),
     ]),
   ]
   const mobile = [
     title('search'),
-    ...SEARCH_HELP.map(([u, description, flags]) => line([seg(u, C.green), seg(`\n  ${description}`, C.dim), seg(`\n  ${flags}`, C.cyan)])),
+    ...SEARCH_HELP.map(([u, description, flags]) =>
+      line([seg(u, C.green), seg(`\n  ${description}`, C.dim), seg(`\n  ${flags}`, C.cyan)]),
+    ),
     line([]),
     title('commands'),
     ...OTHER_HELP.filter(([u]) => !u.startsWith('  ')).map(([u, description]) =>
@@ -233,8 +276,10 @@ export function pageOffset(ctx: SearchContext): number {
 
 /** How to get past the 1,000-result cap: flags for repositories, qualifiers otherwise */
 export function capHint(prefix: string, ctx: SearchContext): Line {
-  const suggestions = ctx.type === 'repositories' ? ['--lang', '--stars', '--pushed'] : SEARCH_TYPE_INFO[ctx.type].narrowWith
-  if (!suggestions.length) return line([seg(`${prefix.replace(/ — narrow with $/, '')} — use more specific terms`, C.dim)])
+  const suggestions =
+    ctx.type === 'repositories' ? ['--lang', '--stars', '--pushed'] : SEARCH_TYPE_INFO[ctx.type].narrowWith
+  if (!suggestions.length)
+    return line([seg(`${prefix.replace(/ — narrow with $/, '')} — use more specific terms`, C.dim)])
   return line([
     seg(prefix, C.dim),
     ...suggestions.flatMap((s, i) => [
@@ -268,7 +313,12 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
   const push = (segs: Seg[], options?: Omit<Line, 'segs'>) => lines.push(line(segs, options))
 
   const where = ctx.type === 'labels' ? `${ctx.repo} ` : ''
-  push([seg(`→ ${desktop ? describeRequest(ctx) : `${ctx.type} ${where}q=${ctx.q} · ${sortLabel(ctx)} · p${ctx.page}`}`, C.faint)])
+  push([
+    seg(
+      `→ ${desktop ? describeRequest(ctx) : `${ctx.type} ${where}q=${ctx.q} · ${sortLabel(ctx)} · p${ctx.page}`}`,
+      C.faint,
+    ),
+  ])
 
   if (entry.status === 'loading') {
     push([seg(`${spinner(now)} `, C.amber), seg('querying api.github.com …', C.amber)])
@@ -280,7 +330,12 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
     const secondary = error.rateLimit?.type === 'secondary'
     push([
       seg(`[fail] ${error.status} `, C.red, { bold: true }),
-      seg(secondary ? 'too many requests in a short time' : `${error.rateLimit?.resource === 'core' ? 'API' : 'search'} quota used up`, C.red),
+      seg(
+        secondary
+          ? 'too many requests in a short time'
+          : `${error.rateLimit?.resource === 'core' ? 'API' : 'search'} quota used up`,
+        C.red,
+      ),
     ])
     if (live && entry.resetAt) {
       push([
@@ -301,7 +356,11 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
     if (error instanceof MissingTokenError) {
       push([seg('       ', C.dim), TOKEN_HINT, seg(' to use this search', C.dim)])
     } else if (error instanceof GitHubApiError && error.status === 401) {
-      push([seg('       try ', C.dim), seg('token rm', C.green, { action: { type: 'fill', text: 'token rm' } }), seg(' or a new token', C.dim)])
+      push([
+        seg('       try ', C.dim),
+        seg('token rm', C.green, { action: { type: 'fill', text: 'token rm' } }),
+        seg(' or a new token', C.dim),
+      ])
     }
     push([])
     return lines
@@ -309,7 +368,12 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
 
   const { data } = entry
   if (!data.total_count) {
-    push([seg(`0 ${info.plural}`, C.white, { bold: true }), seg(' match ', C.dim), seg(ctx.q, C.yellow), ...(where ? [seg(` in ${ctx.repo}`, C.dim)] : [])])
+    push([
+      seg(`0 ${info.plural}`, C.white, { bold: true }),
+      seg(' match ', C.dim),
+      seg(ctx.q, C.yellow),
+      ...(where ? [seg(` in ${ctx.repo}`, C.dim)] : []),
+    ])
     push([seg('  drop a qualifier or broaden the terms', C.dim)])
     push([])
     return lines
@@ -322,21 +386,35 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
     seg(` ${data.total_count === 1 ? info.singular : info.plural}`),
     seg(` · ${entry.cached ? 'cached' : `${entry.ms}ms`} · page ${ctx.page}/${pages} · ${sortLabel(ctx)}`, C.dim),
   ])
-  if (data.incomplete_results) push([seg('[warn] ', C.amber), seg('search timed out, results may be incomplete', C.amber)])
+  if (data.incomplete_results)
+    push([seg('[warn] ', C.amber), seg('search timed out, results may be incomplete', C.amber)])
   const table = desktop && ctx.type === 'repositories'
   if (table) {
-    push([seg(`          ${pad('REPOSITORY', 44)}${padStart('STARS', 7)}${padStart('FORKS', 8)}  ${pad('LANG', 12)}PUSHED`, C.faint)])
+    push([
+      seg(
+        `          ${pad('REPOSITORY', 44)}${padStart('STARS', 7)}${padStart('FORKS', 8)}  ${pad('LANG', 12)}PUSHED`,
+        C.faint,
+      ),
+    ])
   }
 
   data.items.forEach((item, i) => {
     const on = live && i === view.sel
     const rank = String(offset + i + 1)
-    const options = { bg: on ? 'rgba(77,255,154,.09)' : undefined, action: live ? { type: 'select' as const, index: i } : undefined }
+    const options = {
+      bg: on ? 'rgba(77,255,154,.09)' : undefined,
+      action: live ? { type: 'select' as const, index: i } : undefined,
+    }
     const openAction = { type: 'run' as const, command: `open ${rank}` }
     const mark = seg(on ? ' > ' : '   ', C.green, { bold: true })
     const r = describeResult(ctx, item, now)
     const title = (t: string) =>
-      seg(t, r.titleColor ?? (on ? C.white : C.green), { bg: r.titleBg, bold: true, underline: on && !r.titleBg, action: on ? openAction : undefined })
+      seg(t, r.titleColor ?? (on ? C.white : C.green), {
+        bg: r.titleBg,
+        bold: true,
+        underline: on && !r.titleBg,
+        action: on ? openAction : undefined,
+      })
     const indent = desktop ? ' '.repeat(10) : '       '
 
     if (table) {
@@ -345,17 +423,20 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
       const owner = repoOwner(repo)
       const full = `${owner}/${repo.name}`
       const nameWidth = Math.min(full.length, 43)
-      push([
-        mark,
-        seg(`${padStart(rank, 4)}   `, on ? C.green : C.dim),
-        seg(`${owner}/`, C.dim),
-        title(full.length > 43 ? truncate(repo.name, 43 - owner.length - 1) : repo.name),
-        seg(' '.repeat(44 - nameWidth) + padStart(formatShort(repo.stargazers_count), 7), C.white),
-        seg(padStart(formatShort(repo.forks_count), 8), C.desc),
-        seg(`  ${pad(repo.language ?? '—', 12)}`, C.cyan),
-        seg(pad(formatAgo(repo.pushed_at, now), 11), C.dim),
-        ...(repo.archived ? [seg('ARCHIVED', C.amber)] : []),
-      ], options)
+      push(
+        [
+          mark,
+          seg(`${padStart(rank, 4)}   `, on ? C.green : C.dim),
+          seg(`${owner}/`, C.dim),
+          title(full.length > 43 ? truncate(repo.name, 43 - owner.length - 1) : repo.name),
+          seg(' '.repeat(44 - nameWidth) + padStart(formatShort(repo.stargazers_count), 7), C.white),
+          seg(padStart(formatShort(repo.forks_count), 8), C.desc),
+          seg(`  ${pad(repo.language ?? '—', 12)}`, C.cyan),
+          seg(pad(formatAgo(repo.pushed_at, now), 11), C.dim),
+          ...(repo.archived ? [seg('ARCHIVED', C.amber)] : []),
+        ],
+        options,
+      )
       if (r.detail) push([seg(indent + truncate(r.detail, 100), C.desc)], options)
       if (r.tags.length) push([seg(indent), ...r.tags], options)
       push([])
@@ -364,13 +445,16 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
 
     // 13px text fits about 43 columns on a 360px phone; the rank takes 7
     const width = desktop ? 100 : MOBILE_COLUMNS - indent.length
-    push([
-      mark,
-      seg(desktop ? `${padStart(rank, 4)}   ` : `${padStart(rank, 3)} `, on ? C.green : C.dim),
-      seg(r.prefix, C.dim),
-      title(desktop ? r.title : truncate(r.title, Math.max(12, width - r.prefix.length))),
-      ...r.badges,
-    ], options)
+    push(
+      [
+        mark,
+        seg(desktop ? `${padStart(rank, 4)}   ` : `${padStart(rank, 3)} `, on ? C.green : C.dim),
+        seg(r.prefix, C.dim),
+        title(desktop ? r.title : truncate(r.title, Math.max(12, width - r.prefix.length))),
+        ...r.badges,
+      ],
+      options,
+    )
     push([seg(indent), ...r.meta], options)
     if (r.detail) push([seg(indent + truncate(r.detail, width), C.desc)], options)
     if (on && !desktop && r.more.length) push([seg(indent), ...r.more], options)
@@ -379,18 +463,29 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
       for (const f of r.fragments) push([seg(`${indent}│ `, C.faint), ...f], options)
     }
     if (on && !desktop) {
-      push([
-        seg(indent),
-        seg('[ open ↗ ]', C.bg, { bg: C.green, bold: true, action: openAction }),
-        seg('  '),
-        seg(view.yanked ? '[ copied ✓ ]' : `[ yank ${r.yank.label} ]`, C.green, { bold: true, action: { type: 'run', command: `yank ${rank}` } }),
-      ], options)
+      push(
+        [
+          seg(indent),
+          seg('[ open ↗ ]', C.bg, { bg: C.green, bold: true, action: openAction }),
+          seg('  '),
+          seg(view.yanked ? '[ copied ✓ ]' : `[ yank ${r.yank.label} ]`, C.green, {
+            bold: true,
+            action: { type: 'run', command: `yank ${rank}` },
+          }),
+        ],
+        options,
+      )
     }
     push([])
   })
 
   if (data.total_count > SEARCH_MAX_RESULTS && ctx.page === pages) {
-    lines.push(capHint(`github returns only the first ${formatNumber(SEARCH_MAX_RESULTS)} of ${formatNumber(data.total_count)} — narrow with `, ctx))
+    lines.push(
+      capHint(
+        `github returns only the first ${formatNumber(SEARCH_MAX_RESULTS)} of ${formatNumber(data.total_count)} — narrow with `,
+        ctx,
+      ),
+    )
   }
 
   if (live) {

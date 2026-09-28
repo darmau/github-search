@@ -21,28 +21,50 @@ import {
 const NOW = Date.parse('2026-09-28T12:00:00Z')
 
 const ctx = (patch: Partial<SearchContext>): SearchContext => ({
-  type: 'repositories', q: 'x', sort: 'best', order: 'desc', perPage: 10, page: 1, ...patch,
+  type: 'repositories',
+  q: 'x',
+  sort: 'best',
+  order: 'desc',
+  perPage: 10,
+  page: 1,
+  ...patch,
 })
 
 describe('parseSearch', () => {
   it('compiles repository flags into GitHub qualifiers', () => {
-    expect(parseSearch('repositories', tokenize('vector database --lang Rust --stars >5k --topic RAG -u qdrant --no-archived'), NOW)).toMatchObject({
+    expect(
+      parseSearch(
+        'repositories',
+        tokenize('vector database --lang Rust --stars >5k --topic RAG -u qdrant --no-archived'),
+        NOW,
+      ),
+    ).toMatchObject({
       q: 'vector database language:rust stars:>5000 topic:rag user:qdrant archived:false',
     })
   })
 
   it('turns ages into a date', () => {
-    expect(parseSearch('repositories', ['react', '--pushed', '<30d'], NOW)).toMatchObject({ q: 'react pushed:>2026-08-29' })
-    expect(parseSearch('repositories', ['react', '--pushed', '<24h'], NOW)).toMatchObject({ q: 'react pushed:>2026-09-27' })
-    expect(parseSearch('commits', ['fix', '--committed', '<7d'], NOW)).toMatchObject({ q: 'fix committer-date:>2026-09-21' })
+    expect(parseSearch('repositories', ['react', '--pushed', '<30d'], NOW)).toMatchObject({
+      q: 'react pushed:>2026-08-29',
+    })
+    expect(parseSearch('repositories', ['react', '--pushed', '<24h'], NOW)).toMatchObject({
+      q: 'react pushed:>2026-09-27',
+    })
+    expect(parseSearch('commits', ['fix', '--committed', '<7d'], NOW)).toMatchObject({
+      q: 'fix committer-date:>2026-09-21',
+    })
   })
 
   it('keeps raw qualifiers, including exclusions', () => {
-    expect(parseSearch('repositories', ['llm', 'license:mit', '-language:go'], NOW)).toMatchObject({ q: 'llm license:mit -language:go' })
+    expect(parseSearch('repositories', ['llm', 'license:mit', '-language:go'], NOW)).toMatchObject({
+      q: 'llm license:mit -language:go',
+    })
   })
 
   it('reads sort, order and page size', () => {
-    expect(parseSearch('repositories', ['x', '--sort', 'help-wanted', '--order', 'asc', '-n', '50'], NOW)).toMatchObject({
+    expect(
+      parseSearch('repositories', ['x', '--sort', 'help-wanted', '--order', 'asc', '-n', '50'], NOW),
+    ).toMatchObject({
       q: 'x',
       sort: 'help-wanted',
       order: 'asc',
@@ -51,7 +73,9 @@ describe('parseSearch', () => {
   })
 
   it('has flags of its own for each search type', () => {
-    expect(parseSearch('issues', tokenize('leak --repo vercel/next.js --state Open --pr --label "good first issue"'), NOW)).toMatchObject({
+    expect(
+      parseSearch('issues', tokenize('leak --repo vercel/next.js --state Open --pr --label "good first issue"'), NOW),
+    ).toMatchObject({
       q: 'leak repo:vercel/next.js is:open is:pr label:"good first issue"',
     })
     expect(parseSearch('issues', ['leak', '--semantic'], NOW)).toMatchObject({ q: 'leak', mode: 'semantic' })
@@ -68,13 +92,19 @@ describe('parseSearch', () => {
 
   it('takes the repository for label search', () => {
     expect(parseSearch('labels', ['vercel/next.js', 'bug'], NOW)).toMatchObject({ q: 'bug', repo: 'vercel/next.js' })
-    expect(parseSearch('labels', ['bug', '--repo', 'https://github.com/vercel/next.js'], NOW)).toMatchObject({ repo: 'vercel/next.js' })
-    expect(parseSearch('labels', ['bug'], NOW)).toMatchObject({ error: expect.stringMatching(/which repository/) as unknown })
+    expect(parseSearch('labels', ['bug', '--repo', 'https://github.com/vercel/next.js'], NOW)).toMatchObject({
+      repo: 'vercel/next.js',
+    })
+    expect(parseSearch('labels', ['bug'], NOW)).toMatchObject({
+      error: expect.stringMatching(/which repository/) as unknown,
+    })
   })
 
   it('checks sort keys per type', () => {
     expect(parseSearch('users', ['x', '--sort', 'followers'], NOW)).toMatchObject({ sort: 'followers' })
-    expect(parseSearch('users', ['x', '--sort', 'stars'], NOW)).toEqual({ error: '--sort expects best|followers|repositories|joined' })
+    expect(parseSearch('users', ['x', '--sort', 'stars'], NOW)).toEqual({
+      error: '--sort expects best|followers|repositories|joined',
+    })
   })
 
   it('rejects bad input', () => {
@@ -96,11 +126,20 @@ describe('searchTypeOf', () => {
 
 describe('toSearchParams', () => {
   it('leaves sort and order out for best match', () => {
-    expect(toSearchParams(ctx({ page: 2 }))).toEqual({ q: 'x', sort: undefined, order: undefined, per_page: 10, page: 2 })
+    expect(toSearchParams(ctx({ page: 2 }))).toEqual({
+      q: 'x',
+      sort: undefined,
+      order: undefined,
+      per_page: 10,
+      page: 2,
+    })
   })
 
   it('maps help-wanted to the API sort name', () => {
-    expect(toSearchParams(ctx({ sort: 'help-wanted', order: 'asc' }))).toMatchObject({ sort: 'help-wanted-issues', order: 'asc' })
+    expect(toSearchParams(ctx({ sort: 'help-wanted', order: 'asc' }))).toMatchObject({
+      sort: 'help-wanted-issues',
+      order: 'asc',
+    })
     expect(describeRequest(ctx({ q: 'a b', sort: 'stars', perPage: 20 }))).toBe(
       'GET /search/repositories?q=a%20b&sort=stars&order=desc&per_page=20&page=1',
     )
@@ -137,14 +176,20 @@ describe('completionCandidates', () => {
     expect(completionCandidates('users x --t', none).candidates).toEqual(['--type'])
     expect(completionCandidates('users x --sort f', none).candidates).toEqual(['followers'])
     expect(completionCandidates('issues x --state c', none).candidates).toEqual(['closed'])
-    expect(completionCandidates('open 1', { ranks: ['11', '12', '2'], sortType: undefined }).candidates).toEqual(['11', '12'])
+    expect(completionCandidates('open 1', { ranks: ['11', '12', '2'], sortType: undefined }).candidates).toEqual([
+      '11',
+      '12',
+    ])
     expect(completionCandidates('find x language:t', none).candidates).toEqual(['language:typescript'])
     expect(completionCandidates('issues x is:p', none).candidates).toEqual(['is:pr'])
   })
 
   it('completes sort keys for the last search type', () => {
     expect(completionCandidates('sort u', { ranks: [], sortType: 'repositories' }).candidates).toEqual(['updated'])
-    expect(completionCandidates('sort c', { ranks: [], sortType: 'issues' }).candidates).toEqual(['created', 'comments'])
+    expect(completionCandidates('sort c', { ranks: [], sortType: 'issues' }).candidates).toEqual([
+      'created',
+      'comments',
+    ])
   })
 
   it('finds the common prefix', () => {
@@ -186,8 +231,12 @@ describe('--page', () => {
   })
 
   it('rejects anything but a page number', () => {
-    expect(parseSearch('repositories', tokenize('react --page 0'), NOW)).toEqual({ error: '--page expects a page number' })
-    expect(parseSearch('repositories', tokenize('react --page two'), NOW)).toEqual({ error: '--page expects a page number' })
+    expect(parseSearch('repositories', tokenize('react --page 0'), NOW)).toEqual({
+      error: '--page expects a page number',
+    })
+    expect(parseSearch('repositories', tokenize('react --page two'), NOW)).toEqual({
+      error: '--page expects a page number',
+    })
   })
 })
 

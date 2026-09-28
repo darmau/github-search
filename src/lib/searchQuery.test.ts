@@ -40,8 +40,7 @@ describe('validateSearchQuery', () => {
   })
 
   describe('operators', () => {
-    const withOperators = (n: number) =>
-      Array.from({ length: n + 1 }, (_, i) => `t${i}`).join(' OR ')
+    const withOperators = (n: number) => Array.from({ length: n + 1 }, (_, i) => `t${i}`).join(' OR ')
 
     it('allows five and rejects six', () => {
       expect(validateSearchQuery(withOperators(5))).toBeNull()
@@ -52,9 +51,7 @@ describe('validateSearchQuery', () => {
     })
 
     it('counts AND, OR and NOT together', () => {
-      expect(validateSearchQuery('a AND b OR c NOT d AND e OR f NOT g')?.problem).toBe(
-        'too-many-operators',
-      )
+      expect(validateSearchQuery('a AND b OR c NOT d AND e OR f NOT g')?.problem).toBe('too-many-operators')
     })
 
     it('only counts standalone uppercase operators', () => {

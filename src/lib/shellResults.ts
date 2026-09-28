@@ -108,8 +108,18 @@ function describeRepository(r: RepositorySearchResultItem, now: number): DrawnVi
     prefix: `${repoOwner(r)}/`,
     title: r.name,
     badges: r.archived ? [seg(' ARCHIVED', C.amber)] : [],
-    meta: [seg(`${formatShort(r.stargazers_count)} stars`, C.white), DOT(), seg(r.language ?? '—', C.cyan), seg(` · ${formatAgo(r.pushed_at, now)}`, C.dim)],
-    more: [seg(`license ${r.license?.spdx_id ?? '—'} · ${formatShort(r.open_issues_count)} issues · ${r.default_branch}`, C.dim)],
+    meta: [
+      seg(`${formatShort(r.stargazers_count)} stars`, C.white),
+      DOT(),
+      seg(r.language ?? '—', C.cyan),
+      seg(` · ${formatAgo(r.pushed_at, now)}`, C.dim),
+    ],
+    more: [
+      seg(
+        `license ${r.license?.spdx_id ?? '—'} · ${formatShort(r.open_issues_count)} issues · ${r.default_branch}`,
+        C.dim,
+      ),
+    ],
     detail: r.description,
     tags: (r.topics ?? []).map((t) => seg(`#${t}  `, C.amber)),
     facts,
@@ -128,7 +138,10 @@ export function fragmentLines(matches: SearchResultTextMatch[] | undefined): Seg
     for (const part of textMatchParts(match)) {
       part.text.split('\n').forEach((text, i) => {
         if (i > 0) fragmentLines.push((current = []))
-        if (text) current.push(part.highlight ? seg(text, C.yellow, { bg: 'rgba(255,227,138,.18)', bold: true }) : seg(text, C.desc))
+        if (text)
+          current.push(
+            part.highlight ? seg(text, C.yellow, { bg: 'rgba(255,227,138,.18)', bold: true }) : seg(text, C.desc),
+          )
       })
     }
     lines.push(...fragmentLines.filter((l) => l.length).slice(0, MAX_FRAGMENT_LINES))
@@ -183,7 +196,11 @@ function describeIssue(i: IssueSearchResultItem, now: number): DrawnView {
   const kind = i.pull_request ? 'pr' : 'issue'
   const repo = repositoryName(i.repository_url)
   const labels = i.labels.filter((l): l is typeof l & { name: string } => Boolean(l.name))
-  const firstLine = i.body?.split('\n').find((l) => l.trim())?.trim() ?? null
+  const firstLine =
+    i.body
+      ?.split('\n')
+      .find((l) => l.trim())
+      ?.trim() ?? null
   const facts: Fact[] = [
     { label: 'state', value: `${kind} · ${status}`, color: STATUS_COLORS[status] },
     { label: 'repo', value: repo, color: C.white },
@@ -201,7 +218,10 @@ function describeIssue(i: IssueSearchResultItem, now: number): DrawnView {
     title: i.title,
     meta: [
       seg(`${kind} ${status}`, STATUS_COLORS[status], { bold: true }),
-      seg(` · ${i.user?.login ?? 'ghost'} · ${formatShort(i.comments)} comments · updated ${formatAgo(i.updated_at, now)}`, C.dim),
+      seg(
+        ` · ${i.user?.login ?? 'ghost'} · ${formatShort(i.comments)} comments · updated ${formatAgo(i.updated_at, now)}`,
+        C.dim,
+      ),
     ],
     detail: firstLine,
     tags: labels.slice(0, 5).flatMap((l) => [labelChip(l.name, l.color ?? ''), seg(' ')]),
@@ -222,7 +242,11 @@ function describeCommit(c: CommitSearchResultItem, now: number): DrawnView {
     { label: 'parents', value: String(c.parents.length) },
   ]
   if (c.commit.verification) {
-    facts.push({ label: 'signature', value: c.commit.verification.verified ? 'verified' : 'unverified', color: c.commit.verification.verified ? C.green : C.dim })
+    facts.push({
+      label: 'signature',
+      value: c.commit.verification.verified ? 'verified' : 'unverified',
+      color: c.commit.verification.verified ? C.green : C.dim,
+    })
   }
   return {
     ...base,
@@ -248,7 +272,13 @@ function describeUser(u: UserSearchResultItem): DrawnView {
   if (u.company) facts.push({ label: 'company', value: u.company })
   if (u.followers !== undefined) facts.push({ label: 'followers', value: formatNumber(u.followers) })
   if (u.public_repos !== undefined) facts.push({ label: 'repos', value: formatNumber(u.public_repos) })
-  if (u.blog) facts.push({ label: 'blog', value: u.blog, color: C.cyan, url: /^https?:\/\//.test(u.blog) ? u.blog : `https://${u.blog}` })
+  if (u.blog)
+    facts.push({
+      label: 'blog',
+      value: u.blog,
+      color: C.cyan,
+      url: /^https?:\/\//.test(u.blog) ? u.blog : `https://${u.blog}`,
+    })
   return {
     ...base,
     prefix: '',
@@ -264,7 +294,8 @@ function describeUser(u: UserSearchResultItem): DrawnView {
 
 function describeTopic(t: TopicSearchResultItem, now: number): DrawnView {
   const facts: Fact[] = [{ label: 'name', value: t.name, color: C.amber }]
-  if (t.repository_count != null) facts.push({ label: 'repos', value: formatNumber(t.repository_count), color: C.white })
+  if (t.repository_count != null)
+    facts.push({ label: 'repos', value: formatNumber(t.repository_count), color: C.white })
   if (t.created_by) facts.push({ label: 'created by', value: t.created_by })
   if (t.released) facts.push({ label: 'released', value: t.released })
   facts.push({ label: 'updated', value: formatAgo(t.updated_at, now) })
@@ -273,7 +304,10 @@ function describeTopic(t: TopicSearchResultItem, now: number): DrawnView {
     prefix: '',
     title: t.display_name ?? t.name,
     badges: [...(t.featured ? [seg(' FEATURED', C.cyan)] : []), ...(t.curated ? [seg(' CURATED', C.amber)] : [])],
-    meta: [seg(`#${t.name}`, C.amber), ...(t.repository_count != null ? [seg(` · ${formatShort(t.repository_count)} repos`, C.dim)] : [])],
+    meta: [
+      seg(`#${t.name}`, C.amber),
+      ...(t.repository_count != null ? [seg(` · ${formatShort(t.repository_count)} repos`, C.dim)] : []),
+    ],
     detail: t.short_description ?? t.description,
     facts,
     url: `https://github.com/topics/${encodeURIComponent(t.name)}`,

@@ -65,19 +65,53 @@ export const SEARCH_COMMANDS = {
 } as const satisfies Record<string, SearchType>
 
 export const COMMAND_FOR: { readonly [T in SearchType]: string } = {
-  repositories: 'find', code: 'code', issues: 'issues', commits: 'commits', users: 'users', topics: 'topics', labels: 'labels',
+  repositories: 'find',
+  code: 'code',
+  issues: 'issues',
+  commits: 'commits',
+  users: 'users',
+  topics: 'topics',
+  labels: 'labels',
 }
 
 export const COMMANDS = [
   ...Object.keys(SEARCH_COMMANDS),
-  'next', 'prev', 'page', 'sort', 'ls', 'view', 'open', 'yank',
-  'token', 'rate', 'history', 'clear', 'help', 'whoami', 'crt',
+  'next',
+  'prev',
+  'page',
+  'sort',
+  'ls',
+  'view',
+  'open',
+  'yank',
+  'token',
+  'rate',
+  'history',
+  'clear',
+  'help',
+  'whoami',
+  'crt',
 ]
 
 export const ALIASES: Record<string, string> = {
-  f: 'find', search: 'find', repos: 'find', issue: 'issues', commit: 'commits', user: 'users',
-  topic: 'topics', label: 'labels', n: 'next', p: 'prev', clone: 'yank', y: 'yank', o: 'open',
-  v: 'view', h: 'help', '?': 'help', cls: 'clear', logout: 'exit',
+  f: 'find',
+  search: 'find',
+  repos: 'find',
+  issue: 'issues',
+  commit: 'commits',
+  user: 'users',
+  topic: 'topics',
+  label: 'labels',
+  n: 'next',
+  p: 'prev',
+  clone: 'yank',
+  y: 'yank',
+  o: 'open',
+  v: 'view',
+  h: 'help',
+  '?': 'help',
+  cls: 'clear',
+  logout: 'exit',
 }
 
 const KNOWN = new Set<string>([...COMMANDS, ...Object.keys(ALIASES), 'exit'])
@@ -96,8 +130,18 @@ export const SORT_KEYS: { readonly [T in SearchType]: readonly string[] } = {
   repositories: ['best', 'stars', 'forks', 'updated', 'help-wanted'],
   code: ['best'],
   issues: [
-    'best', 'created', 'updated', 'comments', 'interactions', 'reactions', 'reactions-+1', 'reactions--1',
-    'reactions-smile', 'reactions-tada', 'reactions-heart', 'reactions-thinking_face',
+    'best',
+    'created',
+    'updated',
+    'comments',
+    'interactions',
+    'reactions',
+    'reactions-+1',
+    'reactions--1',
+    'reactions-smile',
+    'reactions-tada',
+    'reactions-heart',
+    'reactions-thinking_face',
   ],
   commits: ['best', 'author-date', 'committer-date'],
   users: ['best', 'followers', 'repositories', 'joined'],
@@ -134,7 +178,11 @@ function count(value: string): string {
   return value.replace(/(\d+)k/gi, (_, n: string) => String(Number(n) * 1000))
 }
 
-const valued = (name: string, transform: (v: string, now: number) => string = (v) => v, values?: readonly string[]): FlagDef => ({
+const valued = (
+  name: string,
+  transform: (v: string, now: number) => string = (v) => v,
+  values?: readonly string[],
+): FlagDef => ({
   values,
   takesValue: true,
   compile: (v, now) => ({ qualifier: `${name}:${transform(v, now)}` }),
@@ -151,53 +199,71 @@ const withAliases = (defs: Record<string, FlagDef>, aliases: Record<string, stri
 
 /** The flags each search command accepts, besides --sort, --order and --limit */
 export const FLAGS: { readonly [T in SearchType]: Readonly<Record<string, FlagDef>> } = {
-  repositories: withAliases({
-    '--lang': valued('language', lower, LANGS),
-    '--stars': valued('stars', count, COUNTS),
-    '--pushed': valued('pushed', since, AGES),
-    '--topic': valued('topic', lower),
-    '--user': valued('user'),
-    '--no-archived': toggle('archived:false'),
-  }, { '-l': '--lang', '-s': '--stars', '-t': '--topic', '-u': '--user' }),
-  code: withAliases({
-    '--lang': valued('language', lower, LANGS),
-    '--repo': valued('repo'),
-    '--path': valued('path'),
-    '--ext': valued('extension'),
-    '--user': valued('user'),
-  }, { '-l': '--lang', '-r': '--repo', '-u': '--user' }),
-  issues: withAliases({
-    '--repo': valued('repo'),
-    '--state': valued('is', lower, ['open', 'closed']),
-    '--pr': toggle('is:pr'),
-    '--issue': toggle('is:issue'),
-    '--author': valued('author'),
-    '--label': valued('label', quoted),
-    '--lang': valued('language', lower, LANGS),
-    '--semantic': { takesValue: false, compile: () => ({ mode: 'semantic' }) },
-    '--hybrid': { takesValue: false, compile: () => ({ mode: 'hybrid' }) },
-  }, { '-r': '--repo', '-a': '--author', '-l': '--lang' }),
-  commits: withAliases({
-    '--repo': valued('repo'),
-    '--author': valued('author'),
-    '--committed': valued('committer-date', since, AGES),
-    '--user': valued('user'),
-  }, { '-r': '--repo', '-a': '--author', '-u': '--user' }),
-  users: withAliases({
-    '--location': valued('location', quoted),
-    '--followers': valued('followers', count, COUNTS),
-    '--repos': valued('repos', count, COUNTS),
-    '--type': valued('type', lower, ['user', 'org']),
-    '--lang': valued('language', lower, LANGS),
-  }, { '-l': '--lang' }),
+  repositories: withAliases(
+    {
+      '--lang': valued('language', lower, LANGS),
+      '--stars': valued('stars', count, COUNTS),
+      '--pushed': valued('pushed', since, AGES),
+      '--topic': valued('topic', lower),
+      '--user': valued('user'),
+      '--no-archived': toggle('archived:false'),
+    },
+    { '-l': '--lang', '-s': '--stars', '-t': '--topic', '-u': '--user' },
+  ),
+  code: withAliases(
+    {
+      '--lang': valued('language', lower, LANGS),
+      '--repo': valued('repo'),
+      '--path': valued('path'),
+      '--ext': valued('extension'),
+      '--user': valued('user'),
+    },
+    { '-l': '--lang', '-r': '--repo', '-u': '--user' },
+  ),
+  issues: withAliases(
+    {
+      '--repo': valued('repo'),
+      '--state': valued('is', lower, ['open', 'closed']),
+      '--pr': toggle('is:pr'),
+      '--issue': toggle('is:issue'),
+      '--author': valued('author'),
+      '--label': valued('label', quoted),
+      '--lang': valued('language', lower, LANGS),
+      '--semantic': { takesValue: false, compile: () => ({ mode: 'semantic' }) },
+      '--hybrid': { takesValue: false, compile: () => ({ mode: 'hybrid' }) },
+    },
+    { '-r': '--repo', '-a': '--author', '-l': '--lang' },
+  ),
+  commits: withAliases(
+    {
+      '--repo': valued('repo'),
+      '--author': valued('author'),
+      '--committed': valued('committer-date', since, AGES),
+      '--user': valued('user'),
+    },
+    { '-r': '--repo', '-a': '--author', '-u': '--user' },
+  ),
+  users: withAliases(
+    {
+      '--location': valued('location', quoted),
+      '--followers': valued('followers', count, COUNTS),
+      '--repos': valued('repos', count, COUNTS),
+      '--type': valued('type', lower, ['user', 'org']),
+      '--lang': valued('language', lower, LANGS),
+    },
+    { '-l': '--lang' },
+  ),
   topics: {
     '--featured': toggle('is:featured'),
     '--curated': toggle('is:curated'),
     '--repos': valued('repositories', count, COUNTS),
   },
-  labels: withAliases({
-    '--repo': { takesValue: true, compile: (v) => ({ repo: v }) },
-  }, { '-r': '--repo' }),
+  labels: withAliases(
+    {
+      '--repo': { takesValue: true, compile: (v) => ({ repo: v }) },
+    },
+    { '-r': '--repo' },
+  ),
 }
 
 const COMMON_FLAGS = ['--sort', '--order', '--limit', '-n', '--page']
@@ -263,7 +329,11 @@ export function toSearchParams(ctx: SearchContext, repositoryId?: number): AnySe
   return {
     q: ctx.q,
     // GitHub ignores the order without a sort, so leave both out for best match
-    sort: sorted ? (ctx.type === 'repositories' && ctx.sort === 'help-wanted' ? 'help-wanted-issues' : ctx.sort) : undefined,
+    sort: sorted
+      ? ctx.type === 'repositories' && ctx.sort === 'help-wanted'
+        ? 'help-wanted-issues'
+        : ctx.sort
+      : undefined,
     order: sorted ? ctx.order : undefined,
     per_page: ctx.perPage,
     page: ctx.page,
@@ -312,7 +382,12 @@ export function isSortKey(type: SearchType, value: string | undefined): value is
 
 export type ParsedSearch =
   | { error: string }
-  | Pick<SearchContext, 'q' | 'repo' | 'mode'> & { sort?: string; order?: SearchOrder; perPage?: number; page?: number }
+  | (Pick<SearchContext, 'q' | 'repo' | 'mode'> & {
+      sort?: string
+      order?: SearchOrder
+      perPage?: number
+      page?: number
+    })
 
 /** Compiles a search command's arguments into a query with GitHub qualifiers */
 export function parseSearch(type: SearchType, args: string[], now: number): ParsedSearch {
@@ -410,7 +485,10 @@ export interface CompletionContext {
 }
 
 /** Tab-completion candidates for the word before the caret */
-export function completionCandidates(before: string, { ranks, sortType }: CompletionContext): { word: string; candidates: string[] } {
+export function completionCandidates(
+  before: string,
+  { ranks, sortType }: CompletionContext,
+): { word: string; candidates: string[] } {
   const words = before.split(/\s+/)
   const word = words[words.length - 1]
   const prev = words.length > 1 ? words[words.length - 2] : undefined

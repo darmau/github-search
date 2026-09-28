@@ -29,7 +29,10 @@ describe('shellSession', () => {
     expect(commandFromUrl('?cmd=%20%20')).toBeNull()
     expect(commandFromUrl('')).toBeNull()
 
-    const url = urlWithCommand({ pathname: '/app', search: '?ref=hn&cmd=old', hash: '#x' }, 'issues bug label:"good first issue"')
+    const url = urlWithCommand(
+      { pathname: '/app', search: '?ref=hn&cmd=old', hash: '#x' },
+      'issues bug label:"good first issue"',
+    )
     expect(url).toBe('/app?ref=hn&cmd=issues+bug+label%3A%22good+first+issue%22#x')
     expect(commandFromUrl(url.slice(4, -2))).toBe('issues bug label:"good first issue"')
   })

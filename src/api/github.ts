@@ -6,13 +6,7 @@ import type {
   ServiceUnavailableError,
   ValidationError,
 } from '../types/github'
-import {
-  getCooldown,
-  recordQuota,
-  startCooldown,
-  type RateLimitedError,
-  type SearchQuota,
-} from './rateLimit'
+import { getCooldown, recordQuota, startCooldown, type RateLimitedError, type SearchQuota } from './rateLimit'
 
 const API_BASE = 'https://api.github.com'
 const API_VERSION = '2026-03-10'
@@ -71,11 +65,7 @@ export class GitHubApiError extends Error {
   }
 }
 
-function describeError(
-  status: number,
-  body: GitHubErrorBody | null,
-  rateLimit: RateLimit | null,
-): string {
+function describeError(status: number, body: GitHubErrorBody | null, rateLimit: RateLimit | null): string {
   if (rateLimit) {
     const time = rateLimit.resetAt.toLocaleTimeString()
     return rateLimit.type === 'primary'
@@ -95,11 +85,7 @@ const DEFAULT_RETRY_DELAY_MS = 60_000
  */
 const MIN_RETRY_DELAY_MS = 5_000
 
-function parseRateLimit(
-  res: Response,
-  body: GitHubErrorBody | null,
-  resource: RateLimitResource,
-): RateLimit | null {
+function parseRateLimit(res: Response, body: GitHubErrorBody | null, resource: RateLimitResource): RateLimit | null {
   if (res.status !== 403 && res.status !== 429) return null
 
   const retryAfter = Number(res.headers.get('retry-after') ?? NaN)
@@ -107,9 +93,7 @@ function parseRateLimit(
   const quotaExhausted = res.headers.get('x-ratelimit-remaining') === '0'
   const secondary =
     !quotaExhausted &&
-    (!Number.isNaN(retryAfter) ||
-      res.status === 429 ||
-      /secondary rate limit/i.test(body?.message ?? ''))
+    (!Number.isNaN(retryAfter) || res.status === 429 || /secondary rate limit/i.test(body?.message ?? ''))
 
   if (!quotaExhausted && !secondary) return null
 
@@ -147,10 +131,7 @@ export function searchResource<T extends SearchType>(
  * separately, and each resource separately. Defaults to the build-time token,
  * just like `searchGitHub`.
  */
-export function rateLimitBucket(
-  resource: RateLimitResource,
-  token: string | undefined = DEFAULT_TOKEN,
-): string {
+export function rateLimitBucket(resource: RateLimitResource, token: string | undefined = DEFAULT_TOKEN): string {
   return JSON.stringify([token || null, resource])
 }
 
@@ -160,10 +141,7 @@ export function effectiveToken(token: string | undefined): string | undefined {
 }
 
 /** Code search and semantic/hybrid issue search reject anonymous requests */
-export function searchRequiresToken<T extends SearchType>(
-  type: T,
-  params: SearchEndpoints[T]['params'],
-): boolean {
+export function searchRequiresToken<T extends SearchType>(type: T, params: SearchEndpoints[T]['params']): boolean {
   return searchResource(type, params) !== 'search'
 }
 
@@ -175,11 +153,7 @@ export class MissingTokenError extends Error {
   readonly type: SearchType
 
   constructor(type: SearchType) {
-    super(
-      type === 'code'
-        ? 'Code search needs a GitHub token'
-        : 'Semantic and hybrid issue search need a GitHub token',
-    )
+    super(type === 'code' ? 'Code search needs a GitHub token' : 'Semantic and hybrid issue search need a GitHub token')
     this.name = 'MissingTokenError'
     this.type = type
   }
@@ -268,10 +242,11 @@ export async function getRepository(
   if (cached) return cached
 
   try {
-    const repo = await request<Repository>(
-      `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`,
-      { signal, token, resource: 'core' },
-    )
+    const repo = await request<Repository>(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, {
+      signal,
+      token,
+      resource: 'core',
+    })
     repositories.set(key, repo)
     return repo
   } catch (error) {

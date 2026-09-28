@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 /* dowse terminal. JetBrains Mono is used when installed; the CSP keeps web fonts out */
 body {

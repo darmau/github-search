@@ -16,4 +16,3 @@ describe('getTotalPages', () => {
     expect(getTotalPages(0, 20)).toBe(1)
   })
 })
-

@@ -13,10 +13,18 @@ describe('parseRepositoryName', () => {
     expect(parseRepositoryName(input)).toEqual({ owner, name })
   })
 
-  it.each(['', 'vercel', 'vercel/', '/next.js', 'a/b/c', 'not a repo', '-bad/name', 'bad-/name', 'o/..', 'https://gitlab.com/o/r'])(
-    'rejects %j',
-    (input) => {
-      expect(parseRepositoryName(input)).toBeNull()
-    },
-  )
+  it.each([
+    '',
+    'vercel',
+    'vercel/',
+    '/next.js',
+    'a/b/c',
+    'not a repo',
+    '-bad/name',
+    'bad-/name',
+    'o/..',
+    'https://gitlab.com/o/r',
+  ])('rejects %j', (input) => {
+    expect(parseRepositoryName(input)).toBeNull()
+  })
 })

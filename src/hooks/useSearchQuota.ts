@@ -9,5 +9,9 @@ import { getQuota, subscribeQuota, type SearchQuota } from '../api/rateLimit'
  */
 export function useSearchQuota(resource: RateLimitResource, token?: string): SearchQuota | undefined {
   const bucket = rateLimitBucket(resource, token)
-  return useSyncExternalStore(subscribeQuota, () => getQuota(bucket), () => undefined)
+  return useSyncExternalStore(
+    subscribeQuota,
+    () => getQuota(bucket),
+    () => undefined,
+  )
 }

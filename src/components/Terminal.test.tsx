@@ -241,7 +241,11 @@ describe('Terminal', () => {
     await act(() => vi.advanceTimersByTimeAsync(5_000))
 
     expect(search).toHaveBeenCalledTimes(1)
-    expect(search).toHaveBeenCalledWith('repositories', expect.objectContaining({ q: 'qdrant', sort: 'stars', page: 2 }), expect.anything())
+    expect(search).toHaveBeenCalledWith(
+      'repositories',
+      expect.objectContaining({ q: 'qdrant', sort: 'stars', page: 2 }),
+      expect.anything(),
+    )
     expect(text()).toContain('page 2/3')
   })
 
@@ -293,7 +297,9 @@ describe('Terminal', () => {
   })
 
   it('announces the result picked', async () => {
-    search.mockResolvedValue(response([repo, { ...repo, id: 2, name: 'other', full_name: 'qdrant/other', description: null }]))
+    search.mockResolvedValue(
+      response([repo, { ...repo, id: 2, name: 'other', full_name: 'qdrant/other', description: null }]),
+    )
     render(<Terminal />)
 
     await type('find qdrant')
@@ -355,7 +361,12 @@ describe('Terminal', () => {
       token = useGitHubToken()
       return null
     }
-    render(<><Terminal /><Probe /></>)
+    render(
+      <>
+        <Terminal />
+        <Probe />
+      </>,
+    )
 
     await type('token set github_pat_secret1234')
     expect(token).toBe('github_pat_secret1234')
@@ -396,7 +407,11 @@ describe('Terminal', () => {
 
     await type('issues leak --repo vercel/next.js --pr')
 
-    expect(search).toHaveBeenCalledWith('issues', expect.objectContaining({ q: 'leak repo:vercel/next.js is:pr' }), expect.anything())
+    expect(search).toHaveBeenCalledWith(
+      'issues',
+      expect.objectContaining({ q: 'leak repo:vercel/next.js is:pr' }),
+      expect.anything(),
+    )
     expect(text()).toContain('vercel/next.js#42')
     expect(text()).toContain('pr merged')
     // Yank copies the URL
@@ -412,7 +427,11 @@ describe('Terminal', () => {
     await type('labels vercel/next.js bug')
 
     expect(lookUpRepository).toHaveBeenCalledWith('vercel', 'next.js', expect.anything())
-    expect(search).toHaveBeenCalledWith('labels', expect.objectContaining({ q: 'bug', repository_id: 70107786 }), expect.anything())
+    expect(search).toHaveBeenCalledWith(
+      'labels',
+      expect.objectContaining({ q: 'bug', repository_id: 70107786 }),
+      expect.anything(),
+    )
     expect(text()).toContain("Something isn't working")
   })
 

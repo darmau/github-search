@@ -8,7 +8,14 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from 'react'
-import { effectiveToken, getRepository, GitHubApiError, SEARCH_MAX_RESULTS, searchGitHub, searchResource } from '../api/github'
+import {
+  effectiveToken,
+  getRepository,
+  GitHubApiError,
+  SEARCH_MAX_RESULTS,
+  searchGitHub,
+  searchResource,
+} from '../api/github'
 import { getCachedSearch, searchCacheKey, setCachedSearch } from '../api/searchCache'
 import { setGitHubToken, useGitHubToken } from '../hooks/useGitHubToken'
 import { useMediaQuery } from '../hooks/useMediaQuery'
@@ -107,8 +114,17 @@ interface ShellState {
 }
 
 const PICK_KEYS: Record<string, PickAction> = {
-  j: 'down', ArrowDown: 'down', k: 'up', ArrowUp: 'up', Enter: 'open', o: 'open',
-  y: 'yank', n: 'next', p: 'prev', q: 'quit', Escape: 'quit',
+  j: 'down',
+  ArrowDown: 'down',
+  k: 'up',
+  ArrowUp: 'up',
+  Enter: 'open',
+  o: 'open',
+  y: 'yank',
+  n: 'next',
+  p: 'prev',
+  q: 'quit',
+  Escape: 'quit',
 }
 
 /** Whether pick mode at this level takes the key, rather than the prompt */
@@ -167,7 +183,8 @@ export function Terminal() {
   const remaining = live?.status === 'limited' ? 0 : (quota?.remaining ?? limit)
   const items = (live?.status === 'done' && live.data?.items) || []
   const selIndex = Math.min(s.sel, items.length - 1)
-  const selected: ResultView | undefined = live && items.length ? describeResult(live.ctx, items[selIndex], now) : undefined
+  const selected: ResultView | undefined =
+    live && items.length ? describeResult(live.ctx, items[selIndex], now) : undefined
   const selectedRank = live && selected ? pageOffset(live.ctx) + selIndex + 1 : 0
   const pickOn = s.pick && items.length > 0
 
@@ -215,7 +232,10 @@ export function Terminal() {
     setNow(at)
   }
 
-  async function fetchResults(ctx: SearchContext, signal: AbortSignal): Promise<{ data: AnySearchResponse; cached: boolean }> {
+  async function fetchResults(
+    ctx: SearchContext,
+    signal: AbortSignal,
+  ): Promise<{ data: AnySearchResponse; cached: boolean }> {
     let repositoryId: number | undefined
     if (ctx.type === 'labels') {
       // Label search takes the repository's id; the lookup is cached
@@ -279,7 +299,12 @@ export function Terminal() {
 
   function append(entries: Entry[], patch: Partial<ShellState> = {}) {
     const at = Date.now()
-    setS((prev) => ({ ...prev, entries: [...prev.entries, ...entries].slice(-MAX_ENTRIES), animateUntil: at + TYPE_OUT_MS, ...patch }))
+    setS((prev) => ({
+      ...prev,
+      entries: [...prev.entries, ...entries].slice(-MAX_ENTRIES),
+      animateUntil: at + TYPE_OUT_MS,
+      ...patch,
+    }))
     setNow(at)
   }
 
@@ -350,7 +375,9 @@ export function Terminal() {
           const perPage = parsed.perPage ?? s.ctx?.perPage ?? DEFAULT_PAGE_SIZE
           const lastPage = getTotalPages(SEARCH_MAX_RESULTS, perPage)
           if ((parsed.page ?? 1) > lastPage) {
-            fail(`${command}: github serves only the first ${formatNumber(SEARCH_MAX_RESULTS)} results, so at most --page ${lastPage} with --limit ${perPage}`)
+            fail(
+              `${command}: github serves only the first ${formatNumber(SEARCH_MAX_RESULTS)} results, so at most --page ${lastPage} with --limit ${perPage}`,
+            )
           } else {
             search({
               type,
@@ -380,7 +407,12 @@ export function Terminal() {
                   : `${command}: already on the ${page < 1 ? 'first' : 'last'} page (${entry.ctx.page}/${pages})`,
               )
               if (page > pages && (entry.data?.total_count ?? 0) > pages * entry.ctx.perPage) {
-                out.push({ kind: 'lines', id: newId(), at, lines: [capHint('  github returns only the first 1,000 results — narrow with ', entry.ctx)] })
+                out.push({
+                  kind: 'lines',
+                  id: newId(),
+                  at,
+                  lines: [capHint('  github returns only the first 1,000 results — narrow with ', entry.ctx)],
+                })
               }
               break
             }
@@ -394,7 +426,8 @@ export function Terminal() {
             }
             const keys = SORT_KEYS[s.ctx.type]
             const [key, order = 'desc'] = args
-            if (keys.length === 1) fail(`sort: ${SEARCH_TYPE_INFO[s.ctx.type].singular} search can only be ordered by best match`)
+            if (keys.length === 1)
+              fail(`sort: ${SEARCH_TYPE_INFO[s.ctx.type].singular} search can only be ordered by best match`)
             else if (!isSortKey(s.ctx.type, key)) fail(`sort: expected ${keys.join(' | ')}`)
             else if (order !== 'asc' && order !== 'desc') fail('sort: order must be asc|desc')
             else search({ ...s.ctx, sort: key, order, page: 1 })
@@ -437,12 +470,19 @@ export function Terminal() {
             if (args[0] === 'set') {
               const token = args[1]
               if (!token) fail('token set: missing token')
-              else if (!looksLikeToken(token)) fail("token: that doesn't look like a GitHub token (ghp_… or github_pat_…)")
+              else if (!looksLikeToken(token))
+                fail("token: that doesn't look like a GitHub token (ghp_… or github_pat_…)")
               else {
                 setGitHubToken(token)
                 print([
-                  line([seg('[ ok ] ', C.green), seg(`token ${maskSecret(token)} saved in this browser · limit 30/min`, C.desc)]),
-                  line([seg('[info] ', C.cyan), seg("sent only to api.github.com. don't use a token with write access.", C.desc)]),
+                  line([
+                    seg('[ ok ] ', C.green),
+                    seg(`token ${maskSecret(token)} saved in this browser · limit 30/min`, C.desc),
+                  ]),
+                  line([
+                    seg('[info] ', C.cyan),
+                    seg("sent only to api.github.com. don't use a token with write access.", C.desc),
+                  ]),
                 ])
               }
               break
@@ -451,25 +491,43 @@ export function Terminal() {
               if (!savedToken) fail('token: none saved')
               else {
                 setGitHubToken(null)
-                print([line([seg('[ ok ] ', C.green), seg(`token removed${hasBuildToken() ? ' · using the build-time token' : ' · limit 10/min'}`, C.desc)])])
+                print([
+                  line([
+                    seg('[ ok ] ', C.green),
+                    seg(
+                      `token removed${hasBuildToken() ? ' · using the build-time token' : ' · limit 10/min'}`,
+                      C.desc,
+                    ),
+                  ]),
+                ])
               }
               break
             }
             print(
               hasToken
-                ? [line([
-                    seg('token ', C.dim),
-                    seg(savedToken ? maskSecret(savedToken) : 'from build', C.white),
-                    seg(' · 30 searches/min', C.dim),
-                    ...(savedToken ? [seg(' · ', C.dim), seg('token rm', C.green, { action: { type: 'fill', text: 'token rm' } })] : []),
-                  ])]
+                ? [
+                    line([
+                      seg('token ', C.dim),
+                      seg(savedToken ? maskSecret(savedToken) : 'from build', C.white),
+                      seg(' · 30 searches/min', C.dim),
+                      ...(savedToken
+                        ? [seg(' · ', C.dim), seg('token rm', C.green, { action: { type: 'fill', text: 'token rm' } })]
+                        : []),
+                    ]),
+                  ]
                 : [
                     line([seg('no token · 10 searches/min · no code or semantic issue search', C.amber)]),
                     line([
                       seg('  create a fine-grained token with no extra permissions: ', C.dim),
-                      seg(NEW_TOKEN_URL.replace('https://', ''), C.cyan, { underline: true, action: { type: 'openUrl', url: NEW_TOKEN_URL } }),
+                      seg(NEW_TOKEN_URL.replace('https://', ''), C.cyan, {
+                        underline: true,
+                        action: { type: 'openUrl', url: NEW_TOKEN_URL },
+                      }),
                     ]),
-                    line([seg('  then ', C.dim), seg('token set <pat>', C.green, { action: { type: 'fill', text: 'token set ' } })]),
+                    line([
+                      seg('  then ', C.dim),
+                      seg('token set <pat>', C.green, { action: { type: 'fill', text: 'token set ' } }),
+                    ]),
                   ],
             )
             break
@@ -481,9 +539,15 @@ export function Terminal() {
                 seg('quota  ', C.dim),
                 seg('█'.repeat(filled), remaining ? C.green : C.red),
                 seg('░'.repeat(20 - filled), C.faint),
-                seg(`  ${remaining}/${limit} left${quota ? ` · resets in ${formatCountdown(quota.resetAt.getTime() - at)}` : ''}`, C.desc),
+                seg(
+                  `  ${remaining}/${limit} left${quota ? ` · resets in ${formatCountdown(quota.resetAt.getTime() - at)}` : ''}`,
+                  C.desc,
+                ),
               ]),
-              line([seg('limit  ', C.dim), seg(`${limit}/min · ${resource.replace('_', ' ')} · ${hasToken ? 'token' : 'anonymous'}`, C.desc)]),
+              line([
+                seg('limit  ', C.dim),
+                seg(`${limit}/min · ${resource.replace('_', ' ')} · ${hasToken ? 'token' : 'anonymous'}`, C.desc),
+              ]),
             ])
             break
           }
@@ -511,11 +575,25 @@ export function Terminal() {
             if (topic) {
               const flags = Object.keys(FLAGS[topic]).filter((f) => f.startsWith('--'))
               print([
-                line([seg(SEARCH_TYPE_INFO[topic].label, C.white, { bold: true }), seg(` — ${COMMAND_FOR[topic]}`, C.dim)]),
+                line([
+                  seg(SEARCH_TYPE_INFO[topic].label, C.white, { bold: true }),
+                  seg(` — ${COMMAND_FOR[topic]}`, C.dim),
+                ]),
                 line([seg('usage: ', C.dim), ...highlight(USAGE[topic])]),
-                line([seg('flags: ', C.dim), seg([...flags, '--sort', '--order', '--limit', '--page'].join(' '), C.cyan)]),
+                line([
+                  seg('flags: ', C.dim),
+                  seg([...flags, '--sort', '--order', '--limit', '--page'].join(' '), C.cyan),
+                ]),
                 line([seg('sort:  ', C.dim), seg(SORT_KEYS[topic].join(' · '), C.desc)]),
-                line([seg('e.g.   ', C.dim), ...highlight(SEARCH_TYPE_INFO[topic].placeholder.replace(/^.*e\.g\. /, `${COMMAND_FOR[topic]} ${topic === 'labels' ? 'vercel/next.js ' : ''}`))]),
+                line([
+                  seg('e.g.   ', C.dim),
+                  ...highlight(
+                    SEARCH_TYPE_INFO[topic].placeholder.replace(
+                      /^.*e\.g\. /,
+                      `${COMMAND_FOR[topic]} ${topic === 'labels' ? 'vercel/next.js ' : ''}`,
+                    ),
+                  ),
+                ]),
               ])
               break
             }
@@ -534,33 +612,41 @@ export function Terminal() {
               setCrt(on)
               saveCrt(on)
             }
-            print([line([
-              seg('crt ', C.dim),
-              seg(on ? 'on' : 'off', C.white),
-              seg(on ? ' · scanlines and glow · ' : ' · plain text · ', C.dim),
-              seg(`crt ${on ? 'off' : 'on'}`, C.green, { action: { type: 'run', command: `crt ${on ? 'off' : 'on'}` } }),
-            ])])
+            print([
+              line([
+                seg('crt ', C.dim),
+                seg(on ? 'on' : 'off', C.white),
+                seg(on ? ' · scanlines and glow · ' : ' · plain text · ', C.dim),
+                seg(`crt ${on ? 'off' : 'on'}`, C.green, {
+                  action: { type: 'run', command: `crt ${on ? 'off' : 'on'}` },
+                }),
+              ]),
+            ])
             break
           }
           case 'clear':
             setS((prev) => ({ ...prev, ...patch, entries: [] }))
             return false
           case 'exit':
-            print([line([
-              seg('logout: this shell is the product. try ', C.dim),
-              seg('clear', C.green, { action: { type: 'run', command: 'clear' } }),
-              seg(' instead.', C.dim),
-            ])])
+            print([
+              line([
+                seg('logout: this shell is the product. try ', C.dim),
+                seg('clear', C.green, { action: { type: 'run', command: 'clear' } }),
+                seg(' instead.', C.dim),
+              ]),
+            ])
             break
           default: {
             fail(`command not found: ${first}`)
             const suggestion = suggestCommand(first)
             if (suggestion) {
-              print([line([
-                seg('  did you mean ', C.dim),
-                seg(suggestion, C.green, { bold: true, action: { type: 'fill', text: `${suggestion} ` } }),
-                seg('?', C.dim),
-              ])])
+              print([
+                line([
+                  seg('  did you mean ', C.dim),
+                  seg(suggestion, C.green, { bold: true, action: { type: 'fill', text: `${suggestion} ` } }),
+                  seg('?', C.dim),
+                ]),
+              ])
             }
           }
         }
@@ -637,7 +723,13 @@ export function Terminal() {
         kind: 'lines',
         id: newId(),
         at,
-        lines: [line(candidates.map((c) => seg(`${c}   `, C.cyan, { action: { type: 'fill', text: replaced(c + completionSuffix(c)) + after } })))],
+        lines: [
+          line(
+            candidates.map((c) =>
+              seg(`${c}   `, C.cyan, { action: { type: 'fill', text: replaced(c + completionSuffix(c)) + after } }),
+            ),
+          ),
+        ],
       },
     ])
   }
@@ -648,13 +740,21 @@ export function Terminal() {
     const draft = s.historyIndex === null ? s.input : s.draft
     const index = Math.max(0, Math.min(history.length, (s.historyIndex ?? history.length) + step))
     const input = index === history.length ? draft : history[index]
-    setS((prev) => ({ ...prev, draft, historyIndex: index === history.length ? null : index, input, caret: input.length }))
+    setS((prev) => ({
+      ...prev,
+      draft,
+      historyIndex: index === history.length ? null : index,
+      input,
+      caret: input.length,
+    }))
   }
 
   function pickAct(action: PickAction) {
     if (!items.length) return setS((prev) => ({ ...prev, pick: false }))
-    if (action === 'down') setS((prev) => ({ ...prev, sel: Math.min(items.length - 1, prev.sel + 1), pickKeys: withEnter(prev.pickKeys) }))
-    else if (action === 'up') setS((prev) => ({ ...prev, sel: Math.max(0, prev.sel - 1), pickKeys: withEnter(prev.pickKeys) }))
+    if (action === 'down')
+      setS((prev) => ({ ...prev, sel: Math.min(items.length - 1, prev.sel + 1), pickKeys: withEnter(prev.pickKeys) }))
+    else if (action === 'up')
+      setS((prev) => ({ ...prev, sel: Math.max(0, prev.sel - 1), pickKeys: withEnter(prev.pickKeys) }))
     else if (action === 'open' || action === 'yank') exec(`${action} ${selectedRank}`, s.pickKeys)
     else if (action === 'next' || action === 'prev') exec(action, s.pickKeys)
     else setS((prev) => ({ ...prev, pick: false }))
@@ -687,7 +787,11 @@ export function Terminal() {
   // Autosuggestion from history and the examples, accepted with →
   const ghost =
     s.input && s.caret >= s.input.length && !s.pick
-      ? ([...s.history].reverse().concat(EXAMPLES).find((x) => x.startsWith(s.input) && x.length > s.input.length)?.slice(s.input.length) ?? '')
+      ? ([...s.history]
+          .reverse()
+          .concat(EXAMPLES)
+          .find((x) => x.startsWith(s.input) && x.length > s.input.length)
+          ?.slice(s.input.length) ?? '')
       : ''
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -748,7 +852,14 @@ export function Terminal() {
     else if (e.kind === 'lines') ls = layout === 'm' && e.mobile ? e.mobile : e.lines
     else {
       ls = searchLines(e, {
-        layout, live: e.id === s.liveId, sel: s.sel, yanked: s.yanked, now, limit, remaining, hasToken,
+        layout,
+        live: e.id === s.liveId,
+        sel: s.sel,
+        yanked: s.yanked,
+        now,
+        limit,
+        remaining,
+        hasToken,
       })
     }
     if (typeOut && e.kind !== 'cmd') ls = ls.slice(0, Math.max(1, Math.floor((now - e.at) / TYPE_MS_PER_LINE) + 1))
@@ -784,32 +895,51 @@ export function Terminal() {
   const pickHint = pickOn
     ? layout === 'd'
       ? [
-          seg(' PICK ', C.bg, { bg: C.green, bold: true }), seg(`  ${selIndex + 1}/${items.length}   `, C.green),
+          seg(' PICK ', C.bg, { bg: C.green, bold: true }),
+          seg(`  ${selIndex + 1}/${items.length}   `, C.green),
           ...(s.pickKeys === 'all'
             ? [
-                seg('j/k', C.white), seg(' move   ', C.dim), seg('↵', C.white), seg(' open   ', C.dim), seg('y', C.white),
+                seg('j/k', C.white),
+                seg(' move   ', C.dim),
+                seg('↵', C.white),
+                seg(' open   ', C.dim),
+                seg('y', C.white),
                 seg(` yank ${selected?.yank.label ?? ''}   `, C.dim),
-                seg('n/p', C.white), seg(' page   ', C.dim), seg('q', C.white), seg(' quit', C.dim),
+                seg('n/p', C.white),
+                seg(' page   ', C.dim),
+                seg('q', C.white),
+                seg(' quit', C.dim),
               ]
             : [
-                seg('↑↓', C.white), seg(' move   ', C.dim),
+                seg('↑↓', C.white),
+                seg(' move   ', C.dim),
                 ...(s.pickKeys === 'enter' ? [seg('↵', C.white), seg(' open   ', C.dim)] : []),
-                seg('esc', C.white), seg(' more keys · or just start typing', C.dim),
+                seg('esc', C.white),
+                seg(' more keys · or just start typing', C.dim),
               ]),
         ]
-      : [seg(' PICK ', C.bg, { bg: C.green, bold: true }), seg(`  ${selIndex + 1}/${items.length}  `, C.green), seg('keys below · tap a row', C.dim)]
+      : [
+          seg(' PICK ', C.bg, { bg: C.green, bold: true }),
+          seg(`  ${selIndex + 1}/${items.length}  `, C.green),
+          seg('keys below · tap a row', C.dim),
+        ]
     : null
 
   const prompt = (
     <div className="relative flex min-h-[1.55em] whitespace-pre">
       {pickHint ? (
-        <div><Segs segs={pickHint} act={act} /></div>
+        <div>
+          <Segs segs={pickHint} act={act} />
+        </div>
       ) : (
         <>
           <span style={{ color: C.green, fontWeight: 700 }}>dowse</span>
           {layout === 'd' && <span style={{ color: C.dim }}> ~/search</span>}
           <span style={{ color: C.green }}> ❯ </span>
-          <div className="relative min-w-0 flex-1" style={layout === 'm' ? { whiteSpace: 'pre-wrap', wordBreak: 'break-all' } : undefined}>
+          <div
+            className="relative min-w-0 flex-1"
+            style={layout === 'm' ? { whiteSpace: 'pre-wrap', wordBreak: 'break-all' } : undefined}
+          >
             <Segs segs={highlight(s.input)} act={act} />
             <span style={{ color: C.faint }}>{ghost}</span>
             {!s.input && <span style={{ color: C.faint }}> type help · tab completes · ↑ history</span>}
@@ -862,8 +992,8 @@ export function Terminal() {
       ))}
       {prompt}
       <p id={hintId} className="sr-only">
-        Type help for commands. Tab completes, up and down browse history. After a search, arrow keys pick a
-        result and enter opens it.
+        Type help for commands. Tab completes, up and down browse history. After a search, arrow keys pick a result and
+        enter opens it.
       </p>
     </div>
   )
@@ -879,20 +1009,39 @@ export function Terminal() {
     // [label, key, name for assistive tech where the label is a symbol]
     const keys: [string, Key, string?][] = pickOn
       ? [
-          ['↑', 'pick:up', 'previous result'], ['↓', 'pick:down', 'next result'], ['OPEN ↗', 'pick:open', 'open on GitHub'],
-          ['YANK', 'pick:yank'], ['PREV', 'pick:prev', 'previous page'], ['NEXT', 'pick:next', 'next page'], ['QUIT', 'pick:quit'],
+          ['↑', 'pick:up', 'previous result'],
+          ['↓', 'pick:down', 'next result'],
+          ['OPEN ↗', 'pick:open', 'open on GitHub'],
+          ['YANK', 'pick:yank'],
+          ['PREV', 'pick:prev', 'previous page'],
+          ['NEXT', 'pick:next', 'next page'],
+          ['QUIT', 'pick:quit'],
         ]
       : [
-          ['TAB', 'tab'], ['↑', 'up', 'previous command'], ['↓', 'down', 'next command'], ['ESC', 'esc'],
-          ['^C', 'ctrlc', 'cancel line'], ['^L', 'ctrll', 'clear screen'], ['-', 'ins:-', 'type -'], ['>', 'ins:>', 'type >'],
-          [':', 'ins::', 'type :'], ['/', 'ins:/', 'type /'], ['↵', 'enter', 'run'],
+          ['TAB', 'tab'],
+          ['↑', 'up', 'previous command'],
+          ['↓', 'down', 'next command'],
+          ['ESC', 'esc'],
+          ['^C', 'ctrlc', 'cancel line'],
+          ['^L', 'ctrll', 'clear screen'],
+          ['-', 'ins:-', 'type -'],
+          ['>', 'ins:>', 'type >'],
+          [':', 'ins::', 'type :'],
+          ['/', 'ins:/', 'type /'],
+          ['↵', 'enter', 'run'],
         ]
     return (
       // No glow on phones, where it smears small text
-      <div className="dowse dowse-flat relative flex h-dvh flex-col overflow-hidden" style={{ fontSize: 13, lineHeight: 1.5 }}>
+      <div
+        className="dowse dowse-flat relative flex h-dvh flex-col overflow-hidden"
+        style={{ fontSize: 13, lineHeight: 1.5 }}
+      >
         {overlay}
         {liveRegions}
-        <div className="flex flex-none items-center gap-2 px-3.5 pb-2" style={{ borderBottom: `1px solid ${C.border}`, paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
+        <div
+          className="flex flex-none items-center gap-2 px-3.5 pb-2"
+          style={{ borderBottom: `1px solid ${C.border}`, paddingTop: 'max(8px, env(safe-area-inset-top))' }}
+        >
           <span style={{ color: C.green, fontWeight: 700 }}>dowse</span>
           <span style={{ color: C.dim }}>— tty0</span>
           <span className="ml-auto">{quotaText}</span>
@@ -900,7 +1049,11 @@ export function Terminal() {
         {scrollback}
         <div
           className="dowse-scroll flex flex-none gap-1.5 overflow-x-auto px-2.5 pt-2"
-          style={{ borderTop: `1px solid ${C.border}`, background: C.bar, paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
+          style={{
+            borderTop: `1px solid ${C.border}`,
+            background: C.bar,
+            paddingBottom: 'max(8px, env(safe-area-inset-bottom))',
+          }}
         >
           {keys.map(([label, key, name]) => {
             const hot = key === 'pick:open' || key === 'enter'
@@ -920,7 +1073,11 @@ export function Terminal() {
                   if (e.detail === 0) press(key)
                 }}
                 className="grid h-11 min-w-11 flex-none cursor-pointer place-items-center px-2.5 text-xs font-bold select-none"
-                style={{ border: `1px solid ${hot ? C.green : '#1d3326'}`, color: hot ? C.bg : C.green, background: hot ? C.green : C.bg }}
+                style={{
+                  border: `1px solid ${hot ? C.green : '#1d3326'}`,
+                  color: hot ? C.bg : C.green,
+                  background: hot ? C.green : C.bg,
+                }}
               >
                 {label}
               </button>
@@ -932,14 +1089,24 @@ export function Terminal() {
   }
 
   return (
-    <div className={`dowse relative flex h-dvh flex-col overflow-hidden${crt ? '' : ' dowse-flat'}`} style={{ fontSize: 13, lineHeight: 1.55 }}>
+    <div
+      className={`dowse relative flex h-dvh flex-col overflow-hidden${crt ? '' : ' dowse-flat'}`}
+      style={{ fontSize: 13, lineHeight: 1.55 }}
+    >
       {overlay}
       {liveRegions}
-      <div className="flex h-8.5 flex-none items-center gap-2 px-3.5 text-xs" style={{ background: C.bar, borderBottom: `1px solid ${C.border}` }}>
+      <div
+        className="flex h-8.5 flex-none items-center gap-2 px-3.5 text-xs"
+        style={{ background: C.bar, borderBottom: `1px solid ${C.border}` }}
+      >
         <div aria-hidden className="flex gap-1.75">
-          {[0, 1, 2].map((i) => <div key={i} className="size-2.75 rounded-full" style={{ background: '#26382d' }} />)}
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="size-2.75 rounded-full" style={{ background: '#26382d' }} />
+          ))}
         </div>
-        <span className="flex-1 text-center" style={{ color: C.dim }}>dowse — {hasToken ? 'token' : 'guest'}@tty0</span>
+        <span className="flex-1 text-center" style={{ color: C.dim }}>
+          dowse — {hasToken ? 'token' : 'guest'}@tty0
+        </span>
         {quotaText}
       </div>
       <div className="flex min-h-0 flex-1">
@@ -955,13 +1122,17 @@ export function Terminal() {
           act={act}
         />
       </div>
-      <div className="flex h-6 flex-none items-center text-xs" style={{ background: C.green, color: '#051008', textShadow: 'none' }}>
+      <div
+        className="flex h-6 flex-none items-center text-xs"
+        style={{ background: C.green, color: '#051008', textShadow: 'none' }}
+      >
         <span className="flex h-6 items-center px-2.5 font-bold" style={{ background: '#051008', color: C.green }}>
           {pickOn ? 'PICK' : s.focused ? 'INSERT' : 'IDLE'}
         </span>
         <span className="px-2.5">[dowse] 0:search* 1:preview</span>
         <span className="ml-auto px-2.5">
-          {s.ctx && `${s.ctx.type} · ${sortLabel(s.ctx)} · ${live?.data ? `p${s.ctx.page}/${totalPages(live)} · ` : ''}`}
+          {s.ctx &&
+            `${s.ctx.type} · ${sortLabel(s.ctx)} · ${live?.data ? `p${s.ctx.page}/${totalPages(live)} · ` : ''}`}
           quota {remaining}/{limit}
           {quota && quota.remaining < quota.limit && ` · reset ${formatCountdown(quota.resetAt.getTime() - now)}`}
           {hasToken ? ' · token' : ' · anon'}
@@ -1058,7 +1229,8 @@ const CHEAT: [string, string][] = [
   ['help', 'everything else'],
 ]
 
-const NO_SIGNAL = '   ┌──────────────┐\n   │  ·  ·  ·  ·  │\n   │   NO SIGNAL  │\n   │  ·  ·  ·  ·  │\n   └──────────────┘'
+const NO_SIGNAL =
+  '   ┌──────────────┐\n   │  ·  ·  ·  ·  │\n   │   NO SIGNAL  │\n   │  ·  ·  ·  ·  │\n   └──────────────┘'
 
 interface PreviewProps {
   glow: boolean
@@ -1077,18 +1249,44 @@ function Preview({ glow, ctx, view, rank, yanked, onOpen, onYank, act }: Preview
   const value = (text: string | number) => <span style={{ color: C.white }}>{text}</span>
 
   return (
-    <div className="dowse-scroll flex w-[420px] flex-none flex-col gap-3.5 overflow-y-auto" style={{ borderLeft: `1px solid ${C.border}`, padding: '14px 20px 18px' }}>
-      <div aria-hidden style={{ color: C.faint }}>── 1:preview ──────────────────────────</div>
+    <div
+      className="dowse-scroll flex w-[420px] flex-none flex-col gap-3.5 overflow-y-auto"
+      style={{ borderLeft: `1px solid ${C.border}`, padding: '14px 20px 18px' }}
+    >
+      <div aria-hidden style={{ color: C.faint }}>
+        ── 1:preview ──────────────────────────
+      </div>
       {ctx && (
         <div className="text-xs">
-          <div className="mb-0.5" style={{ color: C.dim }}>compiled query</div>
-          <div>{label('type = ')}{value(ctx.type)}{ctx.mode && <>{label(' · search_type = ')}{value(ctx.mode)}</>}</div>
-          {ctx.repo && <div>{label('repo = ')}{value(ctx.repo)}</div>}
+          <div className="mb-0.5" style={{ color: C.dim }}>
+            compiled query
+          </div>
+          <div>
+            {label('type = ')}
+            {value(ctx.type)}
+            {ctx.mode && (
+              <>
+                {label(' · search_type = ')}
+                {value(ctx.mode)}
+              </>
+            )}
+          </div>
+          {ctx.repo && (
+            <div>
+              {label('repo = ')}
+              {value(ctx.repo)}
+            </div>
+          )}
           <div className="whitespace-pre-wrap wrap-break-word">
             {label('q = ')}
             <Segs segs={highlight(`find ${ctx.q}`).slice(2)} act={act} />
           </div>
-          <div>{label('sort = ')}{value(sortLabel(ctx))}{label(' · per_page = ')}{value(ctx.perPage)}</div>
+          <div>
+            {label('sort = ')}
+            {value(sortLabel(ctx))}
+            {label(' · per_page = ')}
+            {value(ctx.perPage)}
+          </div>
         </div>
       )}
       {view ? (
@@ -1111,7 +1309,11 @@ function Preview({ glow, ctx, view, rank, yanked, onOpen, onYank, act }: Preview
             </span>
             <Segs segs={view.badges} act={act} />
           </div>
-          {view.detail && <div className="text-pretty" style={{ color: C.desc }}>{view.detail}</div>}
+          {view.detail && (
+            <div className="text-pretty" style={{ color: C.desc }}>
+              {view.detail}
+            </div>
+          )}
           <div className="grid grid-cols-[76px_1fr] gap-x-3 gap-y-0.5 text-xs">
             {view.facts.map((f) => (
               <div key={f.label} className="contents">
@@ -1127,11 +1329,20 @@ function Preview({ glow, ctx, view, rank, yanked, onOpen, onYank, act }: Preview
             ))}
           </div>
           {view.tags.length > 0 && (
-            <div className="text-xs leading-6 whitespace-pre-wrap"><Segs segs={view.tags} act={act} /></div>
+            <div className="text-xs leading-6 whitespace-pre-wrap">
+              <Segs segs={view.tags} act={act} />
+            </div>
           )}
           {view.fragments.length > 0 && (
-            <div className="overflow-x-auto p-2.5 text-xs whitespace-pre" style={{ background: '#0d1510', border: `1px solid ${C.border}` }}>
-              {view.fragments.map((f, i) => <div key={i} style={{ minHeight: '1.5em' }}><Segs segs={f} act={act} /></div>)}
+            <div
+              className="overflow-x-auto p-2.5 text-xs whitespace-pre"
+              style={{ background: '#0d1510', border: `1px solid ${C.border}` }}
+            >
+              {view.fragments.map((f, i) => (
+                <div key={i} style={{ minHeight: '1.5em' }}>
+                  <Segs segs={f} act={act} />
+                </div>
+              ))}
             </div>
           )}
           <button
@@ -1141,9 +1352,21 @@ function Preview({ glow, ctx, view, rank, yanked, onOpen, onYank, act }: Preview
             style={{ background: '#0d1510', border: `1px solid ${C.border}` }}
           >
             <span className="min-w-0 truncate">
-              {view.yank.shell ? <>{label('$ ')}{view.yank.shell}</> : <>{label(`${view.yank.label}  `)}{view.yank.text}</>}
+              {view.yank.shell ? (
+                <>
+                  {label('$ ')}
+                  {view.yank.shell}
+                </>
+              ) : (
+                <>
+                  {label(`${view.yank.label}  `)}
+                  {view.yank.text}
+                </>
+              )}
             </span>
-            <span className="flex-none" style={{ color: yanked ? C.green : C.dim }}>{yanked ? 'copied ✓' : 'y yank'}</span>
+            <span className="flex-none" style={{ color: yanked ? C.green : C.dim }}>
+              {yanked ? 'copied ✓' : 'y yank'}
+            </span>
           </button>
           <button type="button" onClick={onOpen} className="dowse-open cursor-pointer p-[9px] text-center">
             [ ↵ open on github ↗ ]
@@ -1151,9 +1374,12 @@ function Preview({ glow, ctx, view, rank, yanked, onOpen, onYank, act }: Preview
         </>
       ) : (
         <div className="flex flex-col gap-3.5" style={{ color: C.dim }}>
-          <div aria-hidden className="whitespace-pre" style={{ color: C.faint, lineHeight: 1.3 }}>{NO_SIGNAL}</div>
+          <div aria-hidden className="whitespace-pre" style={{ color: C.faint, lineHeight: 1.3 }}>
+            {NO_SIGNAL}
+          </div>
           <div>
-            no target. run a search, e.g. <span style={{ color: C.green }}>find &lt;terms&gt;</span>; the selected result shows up here.
+            no target. run a search, e.g. <span style={{ color: C.green }}>find &lt;terms&gt;</span>; the selected
+            result shows up here.
           </div>
           <div className="grid grid-cols-[auto_1fr] gap-x-3.5 gap-y-[3px] text-xs">
             {CHEAT.map(([k, d]) => (

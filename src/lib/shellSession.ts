@@ -51,7 +51,10 @@ export function commandFromUrl(search: string): string | null {
 }
 
 /** The current URL with its command replaced, other params and the hash kept */
-export function urlWithCommand({ pathname, search, hash }: Pick<Location, 'pathname' | 'search' | 'hash'>, command: string): string {
+export function urlWithCommand(
+  { pathname, search, hash }: Pick<Location, 'pathname' | 'search' | 'hash'>,
+  command: string,
+): string {
   const params = new URLSearchParams(search)
   params.set(COMMAND_PARAM, command)
   return `${pathname}?${params}${hash}`

@@ -21,8 +21,7 @@ const MESSAGES: Record<SearchQueryProblem, (actual: number, limit: number) => st
   'too-long': (actual, limit) =>
     `Search text is too long: ${actual} characters, not counting qualifiers and operators (max ${limit})`,
   'too-many-operators': (actual, limit) => `Too many AND / OR / NOT operators: ${actual} (max ${limit})`,
-  'missing-text': () =>
-    'Code search needs a search term besides qualifiers, e.g. useState language:typescript',
+  'missing-text': () => 'Code search needs a search term besides qualifiers, e.g. useState language:typescript',
 }
 
 /** A query GitHub would reject, caught before spending a request on it */

@@ -13,12 +13,8 @@ describe('searchCacheKey', () => {
     const key = searchCacheKey('repositories', { q: 'react', page: 2, sort: 'stars' })
 
     expect(searchCacheKey('repositories', { sort: 'stars', page: 2, q: 'react' })).toBe(key)
-    expect(
-      searchCacheKey('repositories', { q: 'react', page: 2, sort: 'stars', order: undefined }),
-    ).toBe(key)
-    expect(
-      searchCacheKey('repositories', { q: 'react', page: 2, sort: 'stars', order: '' as never }),
-    ).toBe(key)
+    expect(searchCacheKey('repositories', { q: 'react', page: 2, sort: 'stars', order: undefined })).toBe(key)
+    expect(searchCacheKey('repositories', { q: 'react', page: 2, sort: 'stars', order: '' as never })).toBe(key)
   })
 
   it('distinguishes anything that changes the response', () => {

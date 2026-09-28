@@ -383,7 +383,10 @@ describe('getRepository', () => {
     fetchMock.mockImplementation(async () =>
       jsonResponse(
         { message: 'API rate limit exceeded' },
-        { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Date.now() / 1000 + 600) } },
+        {
+          status: 403,
+          headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Date.now() / 1000 + 600) },
+        },
       ),
     )
 
