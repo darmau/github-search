@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useEffectEvent,
   useId,
@@ -38,16 +39,16 @@ import {
   type ShellAction,
 } from '../lib/shell'
 import {
-  latestAnnouncement,
-  commandLine,
+  createLineCache,
+  entryLines,
   errorLine,
   helpLines,
-  motdLines,
+  latestAnnouncement,
   pageOffset,
-  searchLines,
   totalPages,
   type Entry,
   type Layout,
+  type ScrollbackView,
   type SearchEntry,
 } from '../lib/shellOutput'
 import {
@@ -77,7 +78,7 @@ import { describeResult, type AnySearchResponse, type ResultView } from '../lib/
 import { Announcer } from './Announcer'
 import { MobileKeys, type Key, type PickAction } from './MobileKeys'
 import { Preview } from './Preview'
-import { Cursor, Segs } from './Segs'
+import { Cursor, Segs, TerminalLine } from './Segs'
 import { commandFromUrl, loadCrt, loadHistory, saveCrt, saveHistory, urlWithCommand } from '../lib/shellSession'
 
 /** Lines of output typed out per millisecond, roughly */
@@ -169,6 +170,8 @@ export function Terminal() {
   const [now, setNow] = useState(() => Date.now())
   const [today] = useState(() => new Date().toISOString().slice(0, 10))
   const [crt, setCrt] = useState(loadCrt)
+  // Drawn lines of each entry, kept for as long as the terminal is mounted
+  const [lineCache] = useState(createLineCache)
 
   const hintId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -657,26 +660,30 @@ export function Terminal() {
     inputRef.current?.focus({ preventScroll: true })
   }
 
+  // Rows are memoized, so they get a callback that keeps its identity while
+  // `act` itself is new on every render
+  const actRef = useRef(act)
+  useLayoutEffect(() => {
+    actRef.current = act
+  })
+  const stableAct = useCallback((action: ShellAction) => actRef.current(action), [])
+
   // Scrollback, typed out line by line as it arrives
   const typeOut = !reducedMotion
+  const view: ScrollbackView = {
+    layout,
+    liveId: s.liveId,
+    sel: s.sel,
+    yanked: s.yanked,
+    now,
+    limit,
+    remaining,
+    hasToken,
+    today,
+  }
   const lines: Line[] = []
   for (const e of s.entries) {
-    let ls: Line[]
-    if (e.kind === 'cmd') ls = [commandLine(e.text, layout, e.suffix)]
-    else if (e.kind === 'motd') ls = motdLines(hasToken, today)
-    else if (e.kind === 'lines') ls = layout === 'm' && e.mobile ? e.mobile : e.lines
-    else {
-      ls = searchLines(e, {
-        layout,
-        live: e.id === s.liveId,
-        sel: s.sel,
-        yanked: s.yanked,
-        now,
-        limit,
-        remaining,
-        hasToken,
-      })
-    }
+    let ls = entryLines(e, view, lineCache)
     if (typeOut && e.kind !== 'cmd') ls = ls.slice(0, Math.max(1, Math.floor((now - e.at) / TYPE_MS_PER_LINE) + 1))
     lines.push(...ls)
   }
@@ -795,15 +802,7 @@ export function Terminal() {
       style={{ padding: layout === 'd' ? '14px 20px 18px' : '10px 12px 12px' }}
     >
       {lines.map((l, i) => (
-        <div
-          key={i}
-          aria-hidden={l.decorative || undefined}
-          onClick={l.action ? () => act(l.action!) : undefined}
-          className="whitespace-pre-wrap wrap-break-word"
-          style={{ minHeight: '1.55em', background: l.bg, cursor: l.action ? 'pointer' : undefined }}
-        >
-          <Segs segs={l.segs} act={act} />
-        </div>
+        <TerminalLine key={i} line={l} act={stableAct} />
       ))}
       {prompt}
       <p id={hintId} className="sr-only">

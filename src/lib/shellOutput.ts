@@ -529,6 +529,68 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
   return lines
 }
 
+/** Everything an entry's lines can depend on, besides the entry itself */
+export interface ScrollbackView extends Omit<SearchView, 'live'> {
+  /** The search the prompt acts on */
+  liveId: number | null
+  /** For the greeting */
+  today: string
+}
+
+/**
+ * Remembers each entry's lines while nothing they show has changed. The
+ * terminal redraws every 40ms while output types out, and every second for
+ * the clock, but most entries look the same each time: without this, every
+ * search on screen would describe all its results again on every tick.
+ *
+ * Entries are replaced, not changed, when they update, so an entry object
+ * always draws the same way for the same key.
+ */
+export type LineCache = WeakMap<Entry, { key: string; lines: Line[] }>
+
+export function createLineCache(): LineCache {
+  return new WeakMap()
+}
+
+export function entryLines(entry: Entry, view: ScrollbackView, cache: LineCache): Line[] {
+  const key = cacheKey(entry, view)
+  if (key === null) return drawEntry(entry, view)
+
+  const hit = cache.get(entry)
+  if (hit?.key === key) return hit.lines
+  const lines = drawEntry(entry, view)
+  cache.set(entry, { key, lines })
+  return lines
+}
+
+/** What the entry's lines depend on, or null when they change too often to keep */
+function cacheKey(entry: Entry, view: ScrollbackView): string | null {
+  const { layout } = view
+  if (entry.kind === 'motd') return `${layout}|${view.hasToken}|${view.today}`
+  if (entry.kind !== 'search') return layout
+  // A spinner or a countdown, redrawn on every tick
+  if (entry.status === 'loading' || entry.status === 'limited') return null
+
+  // Ages ("3h ago") are shown no finer than hours, so redrawing once a minute is plenty
+  const minute = Math.floor(view.now / 60_000)
+  if (entry.id !== view.liveId) return `${layout}|${minute}`
+  // The live search also shows the selection, what was copied and the quota
+  return [layout, minute, 'live', view.sel, view.yanked, view.remaining, view.limit, view.hasToken].join('|')
+}
+
+function drawEntry(entry: Entry, view: ScrollbackView): Line[] {
+  switch (entry.kind) {
+    case 'cmd':
+      return [commandLine(entry.text, view.layout, entry.suffix)]
+    case 'motd':
+      return motdLines(view.hasToken, view.today)
+    case 'lines':
+      return view.layout === 'm' && entry.mobile ? entry.mobile : entry.lines
+    case 'search':
+      return searchLines(entry, { ...view, live: entry.id === view.liveId })
+  }
+}
+
 const SORT_SUGGESTIONS: { readonly [T in SearchContext['type']]: readonly string[] } = {
   repositories: ['stars', 'updated'],
   code: [],

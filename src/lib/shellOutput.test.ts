@@ -5,6 +5,8 @@ import { line, seg } from './shell'
 import {
   announcement,
   capHint,
+  createLineCache,
+  entryLines,
   fitSegs,
   helpLines,
   latestAnnouncement,
@@ -12,6 +14,7 @@ import {
   plainText,
   searchLines,
   type Entry,
+  type ScrollbackView,
   type SearchEntry,
   type SearchView,
 } from './shellOutput'
@@ -135,6 +138,72 @@ describe('searchLines', () => {
     const lines = texts(searchLines(doneEntry([repo], 25), view({ live: false })))
     expect(lines.join('\n')).not.toContain('sort stars')
     expect(lines.join('\n')).not.toContain(' > ')
+  })
+})
+
+describe('entryLines', () => {
+  const scrollback = (patch: Partial<ScrollbackView> = {}): ScrollbackView => ({
+    ...view(),
+    liveId: 1,
+    today: '2026-09-28',
+    ...patch,
+  })
+  const entry = doneEntry([repo], 25)
+
+  it('draws what searchLines draws', () => {
+    expect(entryLines(entry, scrollback(), createLineCache())).toEqual(searchLines(entry, view()))
+  })
+
+  it('keeps the lines while nothing they show changes', () => {
+    const cache = createLineCache()
+    const first = entryLines(entry, scrollback(), cache)
+
+    // The clock ticking within the minute changes nothing
+    expect(entryLines(entry, scrollback({ now: NOW + 30_000 }), cache)).toBe(first)
+    // Neither does selection, for a search that is no longer live
+    const old = entryLines(entry, scrollback({ liveId: 9 }), cache)
+    expect(entryLines(entry, scrollback({ liveId: 9, sel: 3 }), cache)).toBe(old)
+  })
+
+  it.each<[string, Partial<ScrollbackView>]>([
+    ['a minute passes', { now: NOW + 60_000 }],
+    ['the layout changes', { layout: 'm' }],
+    ['another result is selected', { sel: 1 }],
+    ['a result is copied', { yanked: true }],
+    ['the quota changes', { remaining: 3 }],
+    ['it stops being live', { liveId: 9 }],
+  ])('draws again when %s', (_, patch) => {
+    const cache = createLineCache()
+    const first = entryLines(entry, scrollback(), cache)
+    expect(entryLines(entry, scrollback(patch), cache)).not.toBe(first)
+  })
+
+  it('draws an updated entry afresh', () => {
+    const cache = createLineCache()
+    entryLines(entry, scrollback(), cache)
+    const updated = doneEntry([repo, repo], 26)
+    expect(texts(entryLines(updated, scrollback(), cache))[1]).toContain('26 repositories')
+  })
+
+  it('never keeps spinners and countdowns', () => {
+    const cache = createLineCache()
+    const first = entryLines(loading, scrollback(), cache)
+    expect(entryLines(loading, scrollback(), cache)).not.toBe(first)
+  })
+
+  it('draws commands and printed lines for the layout', () => {
+    const cache = createLineCache()
+    const printed: Entry = {
+      kind: 'lines',
+      id: 2,
+      lines: [line([seg('wide')])],
+      mobile: [line([seg('narrow')])],
+      at: NOW,
+    }
+    expect(texts(entryLines(printed, scrollback(), cache))).toEqual(['wide'])
+    expect(texts(entryLines(printed, scrollback({ layout: 'm' }), cache))).toEqual(['narrow'])
+    const cmd: Entry = { kind: 'cmd', id: 3, text: 'find x', suffix: '^C', at: NOW }
+    expect(texts(entryLines(cmd, scrollback({ layout: 'm' }), cache))).toEqual(['dowse ❯ find x^C'])
   })
 })
 

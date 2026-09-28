@@ -1,4 +1,29 @@
-import { C, type Seg, type ShellAction } from '../lib/shell'
+import { memo } from 'react'
+import { C, type Line, type Seg, type ShellAction } from '../lib/shell'
+
+/**
+ * One line of the scrollback. Memoized: cached lines keep their identity, so
+ * only lines that changed re-render on each tick. Give it an `act` that keeps
+ * its identity too.
+ */
+export const TerminalLine = memo(function TerminalLine({
+  line,
+  act,
+}: {
+  line: Line
+  act: (action: ShellAction) => void
+}) {
+  return (
+    <div
+      aria-hidden={line.decorative || undefined}
+      onClick={line.action ? () => act(line.action!) : undefined}
+      className="whitespace-pre-wrap wrap-break-word"
+      style={{ minHeight: '1.55em', background: line.bg, cursor: line.action ? 'pointer' : undefined }}
+    >
+      <Segs segs={line.segs} act={act} />
+    </div>
+  )
+})
 
 /** Runs of styled terminal text; clicking one with an action runs it */
 export function Segs({ segs, act }: { segs: Seg[]; act: (action: ShellAction) => void }) {
