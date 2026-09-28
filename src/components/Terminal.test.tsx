@@ -302,8 +302,10 @@ describe('Terminal', () => {
     expect(document.querySelector('[aria-live="polite"]')?.textContent).toBe('2: qdrant/other')
   })
 
-  it('hides the drawn logo from screen readers', () => {
+  it('hides the drawn logo from screen readers', async () => {
     render(<Terminal />)
+    // Let the logo type out
+    await act(() => vi.advanceTimersByTimeAsync(5_000))
 
     const hidden = [...document.querySelectorAll('[aria-hidden="true"]')].map((el) => el.textContent).join('\n')
     expect(hidden).toContain('|____/')

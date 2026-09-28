@@ -53,7 +53,7 @@ import {
 } from '../lib/shell'
 import {
   capHint,
-  announcement,
+  latestAnnouncement,
   commandLine,
   errorLine,
   helpLines,
@@ -770,12 +770,16 @@ export function Terminal() {
   )
 
   // The drawn output isn't live: typing out, spinners and countdowns would be
-  // noise read aloud. These announce each finished output and the result
-  // picked instead, keyed so a repeat of the same text is announced too.
-  const lastOutput = s.entries.findLast((e) => e.kind === 'lines' || e.kind === 'search')
-  const spoken = lastOutput && announcement(lastOutput)
-  const picked = pickOn && selected ? `${selectedRank}: ${selected.prefix}${selected.title.trim()}${selected.detail ? `. ${selected.detail}` : ''}` : ''
-  const liveRegions = <Announcer output={spoken || ''} outputKey={lastOutput ? `${lastOutput.id}:${lastOutput.at}` : ''} picked={picked} />
+  // noise read aloud. These announce the latest output and the result picked
+  // instead.
+  const spoken = latestAnnouncement(s.entries)
+  const liveRegions = (
+    <Announcer
+      output={spoken?.text ?? ''}
+      outputKey={spoken?.key ?? ''}
+      picked={pickOn && selected ? `${selectedRank}: ${selected.spoken}` : ''}
+    />
+  )
 
   const pickHint = pickOn
     ? layout === 'd'

@@ -86,6 +86,19 @@ export function announcement(entry: Entry): string | null {
   ].filter(Boolean).join(' ')
 }
 
+/**
+ * Everything printed since the last command, as one announcement. `key`
+ * changes with each new output, so the same text twice is announced twice.
+ */
+export function latestAnnouncement(entries: Entry[]): { key: string; text: string } | null {
+  const start = entries.findLastIndex((e) => e.kind === 'cmd') + 1
+  const output = entries.slice(start).filter((e) => e.kind !== 'motd')
+  const text = output.map(announcement).filter(Boolean).join('\n')
+  if (!text) return null
+  const last = output[output.length - 1]
+  return { key: `${last.id}:${last.at}`, text }
+}
+
 export const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 
 export function spinner(now: number): string {

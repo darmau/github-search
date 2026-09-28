@@ -49,13 +49,22 @@ export interface ResultView {
   url: string
   /** Copied with `yank`; `shell` is a command worth pasting */
   yank: { text: string; label: string; shell?: string }
+  /** As a screen reader announces it once picked, e.g. "owner/name. description" */
+  spoken: string
 }
+
+type DrawnView = Omit<ResultView, 'spoken'>
 
 const DOT = (c: string = C.dim) => seg(' · ', c)
 const MAX_FRAGMENTS = 2
 const MAX_FRAGMENT_LINES = 4
 
 export function describeResult(ctx: SearchContext, item: AnyResultItem, now: number): ResultView {
+  const view = drawResult(ctx, item, now)
+  return { ...view, spoken: `${view.prefix}${view.title.trim()}${view.detail ? `. ${view.detail}` : ''}` }
+}
+
+function drawResult(ctx: SearchContext, item: AnyResultItem, now: number): DrawnView {
   switch (ctx.type) {
     case 'repositories':
       return describeRepository(item as RepositorySearchResultItem, now)
@@ -80,7 +89,7 @@ export function repoOwner(item: RepositorySearchResultItem): string {
   return item.owner?.login ?? item.full_name.split('/')[0]
 }
 
-function describeRepository(r: RepositorySearchResultItem, now: number): ResultView {
+function describeRepository(r: RepositorySearchResultItem, now: number): DrawnView {
   const facts: Fact[] = [
     { label: 'stars', value: formatNumber(r.stargazers_count), color: C.white },
     { label: 'forks', value: formatNumber(r.forks_count) },
@@ -127,7 +136,7 @@ export function fragmentLines(matches: SearchResultTextMatch[] | undefined): Seg
   return lines
 }
 
-function describeCode(f: CodeSearchResultItem): ResultView {
+function describeCode(f: CodeSearchResultItem): DrawnView {
   const facts: Fact[] = [
     { label: 'repo', value: f.repository.full_name, color: C.white, url: f.repository.html_url },
     { label: 'path', value: f.path },
@@ -169,7 +178,7 @@ function labelChip(name: string, color: string): Seg {
   return seg(` ${name} `, bg ? labelTextColor(color) : C.amber, { bg, bold: true })
 }
 
-function describeIssue(i: IssueSearchResultItem, now: number): ResultView {
+function describeIssue(i: IssueSearchResultItem, now: number): DrawnView {
   const status = issueStatus(i)
   const kind = i.pull_request ? 'pr' : 'issue'
   const repo = repositoryName(i.repository_url)
@@ -202,7 +211,7 @@ function describeIssue(i: IssueSearchResultItem, now: number): ResultView {
   }
 }
 
-function describeCommit(c: CommitSearchResultItem, now: number): ResultView {
+function describeCommit(c: CommitSearchResultItem, now: number): DrawnView {
   const [title, ...body] = c.commit.message.split('\n')
   const author = c.author?.login ?? c.commit.author.name
   const facts: Fact[] = [
@@ -227,7 +236,7 @@ function describeCommit(c: CommitSearchResultItem, now: number): ResultView {
   }
 }
 
-function describeUser(u: UserSearchResultItem): ResultView {
+function describeUser(u: UserSearchResultItem): DrawnView {
   const org = u.type === 'Organization'
   const facts: Fact[] = [
     { label: 'login', value: u.login, color: C.white },
@@ -253,7 +262,7 @@ function describeUser(u: UserSearchResultItem): ResultView {
   }
 }
 
-function describeTopic(t: TopicSearchResultItem, now: number): ResultView {
+function describeTopic(t: TopicSearchResultItem, now: number): DrawnView {
   const facts: Fact[] = [{ label: 'name', value: t.name, color: C.amber }]
   if (t.repository_count != null) facts.push({ label: 'repos', value: formatNumber(t.repository_count), color: C.white })
   if (t.created_by) facts.push({ label: 'created by', value: t.created_by })
@@ -279,7 +288,7 @@ function labelPage(apiUrl: string): string | null {
   return match ? `https://github.com/${match[1]}` : null
 }
 
-function describeLabel(l: LabelSearchResultItem, repo: string): ResultView {
+function describeLabel(l: LabelSearchResultItem, repo: string): DrawnView {
   const bg = labelBackground(l.color)
   const facts: Fact[] = [
     { label: 'repo', value: repo, color: C.white },
