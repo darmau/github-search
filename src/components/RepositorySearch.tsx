@@ -12,6 +12,7 @@ import { SearchQueryError } from '../lib/searchQuery'
 import {
   PAGE_SIZE_OPTIONS,
   SORT_OPTIONS,
+  sortFor,
   type SearchSort,
   type SearchUrlState,
 } from '../lib/searchUrl'
@@ -48,9 +49,12 @@ export function RepositorySearch() {
   const token = useGitHubToken()
 
   // GitHub does the ordering, so the whole result set is sorted, not just this page
+  const repoSort = sortFor('repositories', { sort, order })
   const search = useGitHubSearch(
     'repositories',
-    q ? { q, ...(sort && { sort, order }), per_page: perPage, page } : null,
+    q
+      ? { q, ...(repoSort.sort && { sort: repoSort.sort, order: repoSort.order }), per_page: perPage, page }
+      : null,
     { token: token ?? undefined },
   )
 
@@ -107,7 +111,7 @@ export function RepositorySearch() {
             placeholder="Search repositories, e.g. react language:typescript stars:>1000"
           />
         </div>
-        <SortSelect value={{ sort, order }} options={SORT_OPTIONS} onChange={changeSort} />
+        <SortSelect value={{ sort, order }} options={SORT_OPTIONS.repositories} onChange={changeSort} />
       </div>
 
       {quotaLow && <LowQuotaNotice quota={quota} hasToken={token !== null} />}

@@ -1,13 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_PAGE_SIZE, DEFAULT_SORT, parseSearchUrl, toSearchUrl } from './searchUrl'
+import {
+  DEFAULT_PAGE_SIZE,
+  DEFAULT_SORT,
+  parseSearchUrl,
+  SEARCH_TYPES,
+  SORT_OPTIONS,
+  sortFor,
+  toSearchUrl,
+  withSearchType,
+  type SearchUrlState,
+} from './searchUrl'
+
+const base: SearchUrlState = {
+  type: 'repositories',
+  q: 'react',
+  ...DEFAULT_SORT,
+  page: 1,
+  perPage: DEFAULT_PAGE_SIZE,
+}
 
 describe('parseSearchUrl', () => {
   it('falls back to defaults for an empty URL', () => {
-    expect(parseSearchUrl('')).toEqual({ q: '', ...DEFAULT_SORT, page: 1, perPage: DEFAULT_PAGE_SIZE })
+    expect(parseSearchUrl('')).toEqual({ ...base, q: '' })
   })
 
   it('reads q, page and per_page', () => {
     expect(parseSearchUrl('?q=react&sort=forks&order=asc&page=3&per_page=50')).toEqual({
+      type: 'repositories',
       q: 'react',
       sort: 'forks',
       order: 'asc',
@@ -51,34 +70,59 @@ describe('parseSearchUrl', () => {
       order: 'desc',
     })
   })
+
+  it.each(SEARCH_TYPES)('reads type=%s', (type) => {
+    expect(parseSearchUrl(`?type=${type}&q=react`).type).toBe(type)
+  })
+
+  it.each(['?type=wikis', '?type=', '?type=REPOSITORIES'])('treats %j as a repository search', (search) => {
+    expect(parseSearchUrl(`${search}&q=react`).type).toBe('repositories')
+  })
+
+  it('reads a sort offered for the type', () => {
+    expect(parseSearchUrl('?type=issues&q=bug&sort=reactions-%2B1')).toMatchObject({
+      type: 'issues',
+      sort: 'reactions-+1',
+      order: 'desc',
+    })
+    expect(parseSearchUrl('?type=users&q=tom&sort=joined&order=asc')).toMatchObject({
+      sort: 'joined',
+      order: 'asc',
+    })
+  })
+
+  it.each([
+    '?type=users&sort=stars',
+    '?type=code&sort=indexed',
+    '?type=topics&sort=updated',
+    '?type=commits&sort=updated',
+  ])('treats a sort the type does not offer (%j) as best match', (search) => {
+    expect(parseSearchUrl(`${search}&q=react`)).toMatchObject(DEFAULT_SORT)
+  })
 })
 
 describe('toSearchUrl', () => {
   it('leaves defaults out', () => {
-    expect(toSearchUrl({ q: '', ...DEFAULT_SORT, page: 1, perPage: DEFAULT_PAGE_SIZE })).toBe('')
-    expect(toSearchUrl({ q: 'react', ...DEFAULT_SORT, page: 1, perPage: DEFAULT_PAGE_SIZE })).toBe(
-      '?q=react',
-    )
-    expect(toSearchUrl({ q: 'react', sort: 'stars', order: 'desc', page: 1, perPage: DEFAULT_PAGE_SIZE })).toBe(
-      '?q=react&sort=stars',
-    )
+    expect(toSearchUrl({ ...base, q: '' })).toBe('')
+    expect(toSearchUrl(base)).toBe('?q=react')
+    expect(toSearchUrl({ ...base, sort: 'stars', order: 'desc' })).toBe('?q=react&sort=stars')
   })
 
   it('writes non-default values', () => {
-    expect(toSearchUrl({ q: 'react', sort: 'updated', order: 'asc', page: 2, perPage: 50 })).toBe(
-      '?q=react&sort=updated&order=asc&page=2&per_page=50',
+    expect(toSearchUrl({ ...base, type: 'issues', sort: 'updated', order: 'asc', page: 2, perPage: 50 })).toBe(
+      '?type=issues&q=react&sort=updated&order=asc&page=2&per_page=50',
     )
   })
 
   it('drops the page when there is no query', () => {
-    expect(toSearchUrl({ q: '', ...DEFAULT_SORT, page: 3, perPage: 50 })).toBe('?per_page=50')
+    expect(toSearchUrl({ ...base, q: '', page: 3, perPage: 50 })).toBe('?per_page=50')
   })
 
   it('keeps unrelated params and removes stale ones', () => {
     expect(
       toSearchUrl(
-        { q: 'vue', ...DEFAULT_SORT, page: 1, perPage: DEFAULT_PAGE_SIZE },
-        '?ref=home&q=react&sort=stars&order=asc&page=4',
+        { ...base, q: 'vue' },
+        '?ref=home&type=users&q=react&sort=stars&order=asc&page=4',
       ),
     ).toBe(
       '?ref=home&q=vue',
@@ -86,13 +130,45 @@ describe('toSearchUrl', () => {
   })
 
   it('round-trips through parseSearchUrl', () => {
-    const state = {
+    const state: SearchUrlState = {
+      type: 'repositories',
       q: 'react language:typescript stars:>1000',
       sort: 'stars',
       order: 'asc',
       page: 7,
       perPage: 100,
-    } as const
+    }
     expect(parseSearchUrl(toSearchUrl(state))).toEqual(state)
+  })
+
+  it.each(SEARCH_TYPES.flatMap((type) => SORT_OPTIONS[type].map((option) => [type, option.label, option] as const)))(
+    'round-trips %s sorted by %s',
+    (type, _label, { sort, order }) => {
+      const state: SearchUrlState = { ...base, type, sort, order, page: 2 }
+      expect(parseSearchUrl(toSearchUrl(state))).toEqual(state)
+    },
+  )
+})
+
+describe('sortFor', () => {
+  it('keeps a sort the type offers', () => {
+    expect(sortFor('users', { sort: 'followers', order: 'asc' })).toEqual({ sort: 'followers', order: 'asc' })
+  })
+
+  it('falls back to best match for a sort the type does not offer', () => {
+    expect(sortFor('users', { sort: 'stars', order: 'asc' })).toEqual(DEFAULT_SORT)
+    expect(sortFor('topics', { sort: 'updated', order: 'desc' })).toEqual(DEFAULT_SORT)
+  })
+})
+
+describe('withSearchType', () => {
+  it('keeps the query and page size but resets the sort and page', () => {
+    const state: SearchUrlState = { ...base, sort: 'stars', order: 'asc', page: 4, perPage: 50 }
+    expect(withSearchType(state, 'users')).toEqual({ ...base, type: 'users', perPage: 50 })
+  })
+
+  it('leaves the state alone when the type is unchanged', () => {
+    const state: SearchUrlState = { ...base, sort: 'stars', order: 'asc', page: 4 }
+    expect(withSearchType(state, 'repositories')).toBe(state)
   })
 })
