@@ -498,7 +498,7 @@ describe('RepositorySearch', () => {
   describe('rate limit', () => {
     it('offers no retry, since it retries by itself once the limit resets', async () => {
       search.mockRejectedValueOnce(
-        new GitHubApiError(403, null, { type: 'primary', resetAt: new Date(Date.now() + 30_000) }),
+        new GitHubApiError(403, null, { type: 'primary', resource: 'search', resetAt: new Date(Date.now() + 30_000) }),
       )
       render(<RepositorySearch />)
 
@@ -515,7 +515,7 @@ describe('RepositorySearch', () => {
 
     function reportQuota(remaining: number) {
       act(() =>
-        recordQuota(rateLimitBucket('repositories'), {
+        recordQuota(rateLimitBucket('search'), {
           limit: 10,
           remaining,
           resetAt: new Date(Date.now() + 60_000),
@@ -550,6 +550,7 @@ describe('RepositorySearch', () => {
     const rateLimited = () =>
       new GitHubApiError(403, { message: 'API rate limit exceeded' }, {
         type: 'primary',
+        resource: 'search',
         resetAt: new Date(),
       })
 

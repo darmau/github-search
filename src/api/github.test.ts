@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GitHubApiError, rateLimitBucket, searchGitHub } from './github'
+import {
+  clearRepositoryCache,
+  getRepository,
+  GitHubApiError,
+  MissingTokenError,
+  rateLimitBucket,
+  searchGitHub,
+  searchResource,
+} from './github'
 import { getQuota } from './rateLimit'
 
 const fetchMock = vi.fn<typeof fetch>()
@@ -63,8 +71,8 @@ describe('searchGitHub request', () => {
   })
 
   it('sends a bearer token only when one is given', async () => {
-    await searchGitHub('code', { q: 'useState' }, { token: 'secret' })
-    await searchGitHub('code', { q: 'useState' }, { token: '' })
+    await searchGitHub('repositories', { q: 'react' }, { token: 'secret' })
+    await searchGitHub('repositories', { q: 'react' }, { token: '' })
 
     expect(request(0).headers.get('Authorization')).toBe('Bearer secret')
     expect(request(1).headers.has('Authorization')).toBe(false)
@@ -123,7 +131,7 @@ describe('searchGitHub errors', () => {
       )
 
       expect(error.status).toBe(status)
-      expect(error.rateLimit).toEqual({ type: 'primary', resetAt: new Date(reset * 1000) })
+      expect(error.rateLimit).toEqual({ type: 'primary', resource: 'search', resetAt: new Date(reset * 1000) })
       expect(error.message).toMatch(/^Search quota used up, resets at /)
     })
   })
@@ -138,6 +146,7 @@ describe('searchGitHub errors', () => {
 
       expect(error.rateLimit).toEqual({
         type: 'secondary',
+        resource: 'search',
         resetAt: new Date(now.getTime() + 30_000),
       })
       expect(error.message).toMatch(/^Too many requests in a short time, retry after /)
@@ -150,6 +159,7 @@ describe('searchGitHub errors', () => {
 
       expect(error.rateLimit).toEqual({
         type: 'secondary',
+        resource: 'search',
         resetAt: new Date(now.getTime() + 60_000),
       })
     })
@@ -181,7 +191,7 @@ describe('searchGitHub errors', () => {
     }
     fetchMock.mockResolvedValue(jsonResponse(body, { status: 422 }))
 
-    const error = await catchError(searchGitHub('code', { q: 'x'.repeat(300) }))
+    const error = await catchError(searchGitHub('code', { q: 'x'.repeat(300) }, { token: 'secret' }))
     expect(error.status).toBe(422)
     expect(error.body).toEqual(body)
     expect(error.message).toBe('The search query is too long')
@@ -190,7 +200,7 @@ describe('searchGitHub errors', () => {
   it('falls back to body.message', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ message: 'Requires authentication' }, { status: 401 }))
 
-    const error = await catchError(searchGitHub('code', { q: 'foo' }))
+    const error = await catchError(searchGitHub('issues', { q: 'foo' }))
     expect(error.message).toBe('Requires authentication')
   })
 
@@ -249,15 +259,17 @@ describe('searchGitHub rate limit tracking', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps separate limits per token and for code search', async () => {
+  it('keeps separate limits per token and per resource', async () => {
     fetchMock.mockResolvedValueOnce(rateLimitResponse())
-    await catchError(searchGitHub('repositories', { q: 'react' }))
+    await catchError(searchGitHub('repositories', { q: 'react' }, { token: 'ghp_mine' }))
 
     fetchMock.mockImplementation(async () => jsonResponse(emptyResult))
-    await searchGitHub('repositories', { q: 'react' }, { token: 'ghp_mine' })
-    await searchGitHub('code', { q: 'react' })
-    await catchError(searchGitHub('issues', { q: 'react' }))
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    await searchGitHub('repositories', { q: 'react' }, { token: 'ghp_other' })
+    await searchGitHub('code', { q: 'react' }, { token: 'ghp_mine' })
+    await searchGitHub('issues', { q: 'react', search_type: 'semantic' }, { token: 'ghp_mine' })
+    await getRepository('facebook', 'react', { token: 'ghp_mine' })
+    await catchError(searchGitHub('issues', { q: 'react' }, { token: 'ghp_mine' }))
+    expect(fetchMock).toHaveBeenCalledTimes(5)
   })
 
   it('waits a few seconds even when the reset time has already passed', async () => {
@@ -284,11 +296,100 @@ describe('searchGitHub rate limit tracking', () => {
     )
 
     await searchGitHub('repositories', { q: 'react' })
-    expect(getQuota(rateLimitBucket('repositories'))).toEqual({
+    expect(getQuota(rateLimitBucket('search'))).toEqual({
       limit: 10,
       remaining: 7,
       resetAt: new Date(reset * 1000),
     })
-    expect(getQuota(rateLimitBucket('repositories', 'ghp_other'))).toBeUndefined()
+    expect(getQuota(rateLimitBucket('search', 'ghp_other'))).toBeUndefined()
+    expect(getQuota(rateLimitBucket('code_search'))).toBeUndefined()
+  })
+})
+
+describe('searchResource', () => {
+  it.each([
+    ['repositories', { q: 'react' }, 'search'],
+    ['issues', { q: 'crash' }, 'search'],
+    ['issues', { q: 'crash', search_type: 'semantic' }, 'semantic_search'],
+    ['issues', { q: 'crash', search_type: 'hybrid' }, 'semantic_search'],
+    ['code', { q: 'useState' }, 'code_search'],
+  ] as const)('%s %j draws from %s', (type, params, resource) => {
+    expect(searchResource(type, params)).toBe(resource)
+  })
+})
+
+describe('searchGitHub without a token', () => {
+  it.each([
+    ['code', { q: 'useState' }],
+    ['issues', { q: 'crash', search_type: 'semantic' }],
+    ['issues', { q: 'crash', search_type: 'hybrid' }],
+  ] as const)('rejects %s %j without a request', async (type, params) => {
+    await expect(searchGitHub(type, params, { token: '' })).rejects.toBeInstanceOf(MissingTokenError)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('sends the same searches with a token', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(emptyResult))
+    await searchGitHub('code', { q: 'useState' }, { token: 'secret' })
+    await searchGitHub('issues', { q: 'crash', search_type: 'semantic' }, { token: 'secret' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('getRepository', () => {
+  const repo = { id: 10270250, full_name: 'react/react' }
+
+  beforeEach(() => {
+    clearRepositoryCache()
+    fetchMock.mockImplementation(async () => jsonResponse(repo))
+  })
+
+  it('fetches the repository with the token', async () => {
+    await expect(getRepository('facebook', 'react', { token: 'secret' })).resolves.toEqual(repo)
+
+    const { url, headers } = request()
+    expect(url.href).toBe('https://api.github.com/repos/facebook/react')
+    expect(headers.get('Authorization')).toBe('Bearer secret')
+  })
+
+  it('escapes the path segments', async () => {
+    await getRepository('a b', 'c?d')
+    expect(request().url.pathname).toBe('/repos/a%20b/c%3Fd')
+  })
+
+  it('remembers a lookup per token, ignoring case', async () => {
+    await getRepository('facebook', 'react')
+    await getRepository('Facebook', 'React')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+
+    await getRepository('facebook', 'react', { token: 'secret' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('names the repository when it does not exist or is not visible', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse({ message: 'Not Found' }, { status: 404 }))
+
+    const error = await catchError(getRepository('nobody', 'nothing'))
+    expect(error.status).toBe(404)
+    expect(error.message).toBe('Repository nobody/nothing not found')
+
+    // A failed lookup is not remembered
+    await catchError(getRepository('nobody', 'nothing'))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports the core rate limit as an API quota', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    fetchMock.mockImplementation(async () =>
+      jsonResponse(
+        { message: 'API rate limit exceeded' },
+        { status: 403, headers: { 'x-ratelimit-remaining': '0', 'x-ratelimit-reset': String(Date.now() / 1000 + 600) } },
+      ),
+    )
+
+    const error = await catchError(getRepository('facebook', 'react', { token: 'core-limited' }))
+    expect(error.rateLimit?.resource).toBe('core')
+    expect(error.message).toMatch(/^API quota used up/)
+    vi.useRealTimers()
   })
 })

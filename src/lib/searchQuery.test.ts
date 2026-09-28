@@ -63,4 +63,24 @@ describe('validateSearchQuery', () => {
       expect(validateSearchQuery(q)).toBeNull()
     })
   })
+
+  describe('code search', () => {
+    it.each(['language:go', 'repo:facebook/react path:src', 'NOT language:go', ''])(
+      'rejects %j, which has no search term',
+      (q) => {
+        const error = validateSearchQuery(q, 'code')
+        expect(error).toMatchObject({ problem: 'missing-text' })
+        expect(error?.message).toMatch(/needs a search term/)
+      },
+    )
+
+    it.each(['useState language:ts', '"use client"', 'fetch AND retry'])('accepts %j', (q) => {
+      expect(validateSearchQuery(q, 'code')).toBeNull()
+    })
+
+    it('allows a qualifier-only query for other types', () => {
+      expect(validateSearchQuery('language:go')).toBeNull()
+      expect(validateSearchQuery('language:go', 'repositories')).toBeNull()
+    })
+  })
 })

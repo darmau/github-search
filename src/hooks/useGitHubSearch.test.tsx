@@ -1,6 +1,6 @@
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { GitHubApiError, searchGitHub, type SearchOptions } from '../api/github'
+import { GitHubApiError, MissingTokenError, searchGitHub, type SearchOptions } from '../api/github'
 import { SEARCH_CACHE_TTL_MS } from '../api/searchCache'
 import { SearchQueryError } from '../lib/searchQuery'
 import type { RepositorySearchParams, RepositorySearchResponse } from '../types/github'
@@ -197,7 +197,7 @@ describe('refetch', () => {
 describe('rate limit', () => {
   const now = new Date('2026-09-27T10:00:00Z')
   const rateLimited = () =>
-    new GitHubApiError(403, null, { type: 'primary', resetAt: new Date(now.getTime() + 30_000) })
+    new GitHubApiError(403, null, { type: 'primary', resource: 'search', resetAt: new Date(now.getTime() + 30_000) })
 
   beforeEach(() => {
     vi.useFakeTimers()
@@ -384,5 +384,58 @@ describe('query validation', () => {
     act(() => result.current.refetch())
     expect(result.current.status).toBe('error')
     expect(searches).toHaveLength(0)
+  })
+})
+
+describe('searches that need a token', () => {
+  function renderCodeSearch(initialProps: { q: string; token?: string }) {
+    return renderHook(({ q, token }) => useGitHubSearch('code', { q }, { token }), { initialProps })
+  }
+
+  it('fails straight away without a token, and without a request', () => {
+    const { result } = renderCodeSearch({ q: 'useState', token: '' })
+
+    expect(result.current.status).toBe('error')
+    expect(result.current.error).toBeInstanceOf(MissingTokenError)
+    expect(searches).toHaveLength(0)
+  })
+
+  it('keeps the same error across renders', () => {
+    const { result, rerender } = renderCodeSearch({ q: 'useState', token: '' })
+    const error = result.current.error
+
+    rerender({ q: 'useState', token: '' })
+    expect(result.current.error).toBe(error)
+  })
+
+  it('stays idle for a blank query', () => {
+    const { result } = renderCodeSearch({ q: '  ', token: '' })
+    expect(result.current.status).toBe('idle')
+  })
+
+  it('reports an invalid query before the missing token', () => {
+    const { result } = renderCodeSearch({ q: 'language:go', token: '' })
+    expect(result.current.error).toBeInstanceOf(SearchQueryError)
+  })
+
+  it('searches once a token is added', () => {
+    const { result, rerender } = renderCodeSearch({ q: 'useState', token: '' })
+
+    rerender({ q: 'useState', token: 'secret' })
+    expect(result.current.status).toBe('loading')
+    expect(searches).toHaveLength(1)
+    expect(searches[0].options.token).toBe('secret')
+  })
+
+  it('needs one for semantic issue search only', () => {
+    const { result, rerender } = renderHook(
+      ({ semantic }) =>
+        useGitHubSearch('issues', { q: 'crash', ...(semantic && { search_type: 'semantic' as const }) }, { token: '' }),
+      { initialProps: { semantic: true } },
+    )
+    expect(result.current.error).toBeInstanceOf(MissingTokenError)
+
+    rerender({ semantic: false })
+    expect(result.current.status).toBe('loading')
   })
 })
