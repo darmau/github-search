@@ -41,6 +41,8 @@ export interface Line {
   segs: Seg[]
   bg?: string
   action?: ShellAction
+  /** Drawing, not text, e.g. the ASCII logo: hidden from screen readers */
+  decorative?: boolean
 }
 
 export function seg(t: string, c: string = C.fg, options: Omit<Seg, 't' | 'c'> = {}): Seg {

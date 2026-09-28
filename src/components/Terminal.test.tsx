@@ -279,6 +279,48 @@ describe('Terminal', () => {
     expect(input()).toHaveProperty('value', 'help find')
   })
 
+  it('announces finished output to screen readers', async () => {
+    search.mockResolvedValue(response([repo], 1234))
+    render(<Terminal />)
+
+    await type('find qdrant')
+    expect(screen.getByRole('status').textContent).toBe(
+      '1,234 repositories, page 1 of 100. first: qdrant/qdrant. arrow keys pick a result.',
+    )
+
+    await type('fnid')
+    expect(screen.getByRole('status').textContent).toContain('command not found: fnid')
+  })
+
+  it('announces the result picked', async () => {
+    search.mockResolvedValue(response([repo, { ...repo, id: 2, name: 'other', full_name: 'qdrant/other', description: null }]))
+    render(<Terminal />)
+
+    await type('find qdrant')
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+
+    expect(document.querySelector('[aria-live="polite"]')?.textContent).toBe('2: qdrant/other')
+  })
+
+  it('hides the drawn logo from screen readers', () => {
+    render(<Terminal />)
+
+    const hidden = [...document.querySelectorAll('[aria-hidden="true"]')].map((el) => el.textContent).join('\n')
+    expect(hidden).toContain('|____/')
+    expect(screen.getByRole('log', { name: 'Output' }).textContent).toContain('github search shell')
+  })
+
+  it('names the symbol keys on narrow screens', () => {
+    setWidth(false)
+    render(<Terminal />)
+
+    expect(screen.getByRole('button', { name: 'previous command' })).toBeTruthy()
+    // Keyboard and screen reader activation fire click without mousedown
+    fireEvent.change(input(), { target: { value: 'help', selectionStart: 4 } })
+    fireEvent.click(screen.getByRole('button', { name: 'run' }), { detail: 0 })
+    expect(text()).toContain('paginate the last search')
+  })
+
   it('explains unknown commands and suggests a fix', async () => {
     render(<Terminal />)
 

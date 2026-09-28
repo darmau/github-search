@@ -48,6 +48,44 @@ export type Entry =
   | { kind: 'lines'; id: number; lines: Line[]; mobile?: Line[]; at: number }
   | SearchEntry
 
+/** The text of some lines, as a screen reader should hear it */
+export function plainText(lines: Line[]): string {
+  return lines
+    .filter((l) => !l.decorative)
+    .map((l) => l.segs.map((s) => s.t).join('').trim())
+    .filter(Boolean)
+    .join('\n')
+}
+
+/**
+ * What a screen reader announces once an entry has settled. The drawn output
+ * types out, animates spinners and counts down, which would be noise read
+ * aloud, so this sums it up instead. Null for entries not worth announcing.
+ */
+export function announcement(entry: Entry): string | null {
+  if (entry.kind === 'lines') return plainText(entry.lines) || null
+  if (entry.kind !== 'search') return null
+
+  const { ctx } = entry
+  const info = SEARCH_TYPE_INFO[ctx.type]
+  if (entry.status === 'loading') return `searching ${info.plural}`
+  if (entry.status === 'limited') {
+    const error = entry.error as GitHubApiError
+    const at = entry.resetAt ? `, retrying at ${new Date(entry.resetAt).toLocaleTimeString()}` : ''
+    return `search failed: ${error.message}${at}`
+  }
+  if (entry.status === 'error' || !entry.data) return `search failed: ${entry.error?.message ?? 'unknown error'}`
+
+  const { data } = entry
+  if (!data.total_count) return `no ${info.plural} match ${ctx.q}`
+  const first = data.items[0] ? describeResult(ctx, data.items[0], entry.at) : null
+  return [
+    `${formatNumber(data.total_count)} ${data.total_count === 1 ? info.singular : info.plural}, page ${ctx.page} of ${totalPages(entry)}.`,
+    first ? `first: ${first.prefix}${first.title.trim()}.` : '',
+    'arrow keys pick a result.',
+  ].filter(Boolean).join(' ')
+}
+
 export const SPINNER = '⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
 
 export function spinner(now: number): string {
@@ -66,7 +104,7 @@ export const TOKEN_HINT = seg('token set <pat>', C.green, { action: { type: 'fil
 
 export function motdLines(hasToken: boolean, date: string): Line[] {
   return [
-    ...LOGO.map((l) => line([seg(l, C.green, { bold: true })])),
+    ...LOGO.map((l) => line([seg(l, C.green, { bold: true })], { decorative: true })),
     line([]),
     line([seg('dowse', C.white, { bold: true }), seg(` — github search shell · ${hasToken ? 'token' : 'guest'}@tty0 · ${date}`, C.dim)]),
     line([seg('designed and developed by ', C.faint), seg('Liao', C.desc)]),

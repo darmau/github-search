@@ -1,6 +1,7 @@
 import {
   useEffect,
   useEffectEvent,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -52,6 +53,7 @@ import {
 } from '../lib/shell'
 import {
   capHint,
+  announcement,
   commandLine,
   errorLine,
   helpLines,
@@ -150,6 +152,7 @@ export function Terminal() {
   const [today] = useState(() => new Date().toISOString().slice(0, 10))
   const [crt, setCrt] = useState(loadCrt)
 
+  const hintId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const nextId = useRef(1)
@@ -759,7 +762,20 @@ export function Terminal() {
 
   const quotaColor = remaining === 0 ? C.red : remaining <= limit * 0.2 ? C.amber : C.green
   const quotaBar = `${'▮'.repeat(Math.round((remaining / limit) * 10))}${'▯'.repeat(10 - Math.round((remaining / limit) * 10))}`
-  const quotaText = <span style={{ color: quotaColor }}>{quotaBar} {remaining}/{limit}</span>
+  const quotaText = (
+    <span style={{ color: quotaColor }}>
+      <span aria-hidden>{quotaBar}</span> {remaining}/{limit}
+      <span className="sr-only"> searches left</span>
+    </span>
+  )
+
+  // The drawn output isn't live: typing out, spinners and countdowns would be
+  // noise read aloud. These announce each finished output and the result
+  // picked instead, keyed so a repeat of the same text is announced too.
+  const lastOutput = s.entries.findLast((e) => e.kind === 'lines' || e.kind === 'search')
+  const spoken = lastOutput && announcement(lastOutput)
+  const picked = pickOn && selected ? `${selectedRank}: ${selected.prefix}${selected.title.trim()}${selected.detail ? `. ${selected.detail}` : ''}` : ''
+  const liveRegions = <Announcer output={spoken || ''} outputKey={lastOutput ? `${lastOutput.id}:${lastOutput.at}` : ''} picked={picked} />
 
   const pickHint = pickOn
     ? layout === 'd'
@@ -800,6 +816,7 @@ export function Terminal() {
       <input
         ref={inputRef}
         aria-label="Command"
+        aria-describedby={hintId}
         value={s.input}
         onChange={onChange}
         onKeyDown={onKeyDown}
@@ -820,6 +837,10 @@ export function Terminal() {
   const scrollback = (
     <div
       ref={scrollRef}
+      role="log"
+      // Announced through the live regions instead
+      aria-live="off"
+      aria-label="Output"
       onClick={focusInput}
       className="dowse-scroll min-h-0 flex-1 cursor-text overflow-y-auto"
       style={{ padding: layout === 'd' ? '14px 20px 18px' : '10px 12px 12px' }}
@@ -827,6 +848,7 @@ export function Terminal() {
       {lines.map((l, i) => (
         <div
           key={i}
+          aria-hidden={l.decorative || undefined}
           onClick={l.action ? () => act(l.action!) : undefined}
           className="whitespace-pre-wrap wrap-break-word"
           style={{ minHeight: '1.55em', background: l.bg, cursor: l.action ? 'pointer' : undefined }}
@@ -835,6 +857,10 @@ export function Terminal() {
         </div>
       ))}
       {prompt}
+      <p id={hintId} className="sr-only">
+        Type help for commands. Tab completes, up and down browse history. After a search, arrow keys pick a
+        result and enter opens it.
+      </p>
     </div>
   )
 
@@ -846,13 +872,22 @@ export function Terminal() {
   ) : null
 
   if (layout === 'm') {
-    const keys: [string, Key][] = pickOn
-      ? [['↑', 'pick:up'], ['↓', 'pick:down'], ['OPEN ↗', 'pick:open'], ['YANK', 'pick:yank'], ['PREV', 'pick:prev'], ['NEXT', 'pick:next'], ['QUIT', 'pick:quit']]
-      : [['TAB', 'tab'], ['↑', 'up'], ['↓', 'down'], ['ESC', 'esc'], ['^C', 'ctrlc'], ['^L', 'ctrll'], ['-', 'ins:-'], ['>', 'ins:>'], [':', 'ins::'], ['/', 'ins:/'], ['↵', 'enter']]
+    // [label, key, name for assistive tech where the label is a symbol]
+    const keys: [string, Key, string?][] = pickOn
+      ? [
+          ['↑', 'pick:up', 'previous result'], ['↓', 'pick:down', 'next result'], ['OPEN ↗', 'pick:open', 'open on GitHub'],
+          ['YANK', 'pick:yank'], ['PREV', 'pick:prev', 'previous page'], ['NEXT', 'pick:next', 'next page'], ['QUIT', 'pick:quit'],
+        ]
+      : [
+          ['TAB', 'tab'], ['↑', 'up', 'previous command'], ['↓', 'down', 'next command'], ['ESC', 'esc'],
+          ['^C', 'ctrlc', 'cancel line'], ['^L', 'ctrll', 'clear screen'], ['-', 'ins:-', 'type -'], ['>', 'ins:>', 'type >'],
+          [':', 'ins::', 'type :'], ['/', 'ins:/', 'type /'], ['↵', 'enter', 'run'],
+        ]
     return (
       // No glow on phones, where it smears small text
       <div className="dowse dowse-flat relative flex h-dvh flex-col overflow-hidden" style={{ fontSize: 13, lineHeight: 1.5 }}>
         {overlay}
+        {liveRegions}
         <div className="flex flex-none items-center gap-2 px-3.5 pb-2" style={{ borderBottom: `1px solid ${C.border}`, paddingTop: 'max(8px, env(safe-area-inset-top))' }}>
           <span style={{ color: C.green, fontWeight: 700 }}>dowse</span>
           <span style={{ color: C.dim }}>— tty0</span>
@@ -863,17 +898,22 @@ export function Terminal() {
           className="dowse-scroll flex flex-none gap-1.5 overflow-x-auto px-2.5 pt-2"
           style={{ borderTop: `1px solid ${C.border}`, background: C.bar, paddingBottom: 'max(8px, env(safe-area-inset-bottom))' }}
         >
-          {keys.map(([label, key]) => {
+          {keys.map(([label, key, name]) => {
             const hot = key === 'pick:open' || key === 'enter'
             return (
               <button
                 key={key}
                 type="button"
+                aria-label={name}
                 // mousedown, not click, so the input keeps focus and the keyboard stays up
                 onMouseDown={(e) => {
                   e.preventDefault()
                   press(key)
                   if (document.activeElement !== inputRef.current) inputRef.current?.focus({ preventScroll: true })
+                }}
+                // A click with no mousedown before it: the keyboard or a screen reader
+                onClick={(e) => {
+                  if (e.detail === 0) press(key)
                 }}
                 className="grid h-11 min-w-11 flex-none cursor-pointer place-items-center px-2.5 text-xs font-bold select-none"
                 style={{ border: `1px solid ${hot ? C.green : '#1d3326'}`, color: hot ? C.bg : C.green, background: hot ? C.green : C.bg }}
@@ -890,6 +930,7 @@ export function Terminal() {
   return (
     <div className={`dowse relative flex h-dvh flex-col overflow-hidden${crt ? '' : ' dowse-flat'}`} style={{ fontSize: 13, lineHeight: 1.55 }}>
       {overlay}
+      {liveRegions}
       <div className="flex h-8.5 flex-none items-center gap-2 px-3.5 text-xs" style={{ background: C.bar, borderBottom: `1px solid ${C.border}` }}>
         <div aria-hidden className="flex gap-1.75">
           {[0, 1, 2].map((i) => <div key={i} className="size-2.75 rounded-full" style={{ background: '#26382d' }} />)}
@@ -931,6 +972,24 @@ export function Terminal() {
 
 function hasBuildToken(): boolean {
   return effectiveToken(undefined) !== undefined
+}
+
+/**
+ * Screen reader announcements, in place of the drawn output: the latest
+ * output once it has finished, and the result picked. `outputKey` changes with
+ * each output, so the same text twice is still announced twice.
+ */
+function Announcer({ output, outputKey, picked }: { output: string; outputKey: string; picked: string }) {
+  return (
+    <>
+      <div role="status" className="sr-only">
+        {output && <p key={outputKey}>{output}</p>}
+      </div>
+      <div aria-live="polite" aria-atomic className="sr-only">
+        {picked && <p>{picked}</p>}
+      </div>
+    </>
+  )
 }
 
 function Segs({ segs, act }: { segs: Seg[]; act: (action: ShellAction) => void }) {
@@ -1015,7 +1074,7 @@ function Preview({ glow, ctx, view, rank, yanked, onOpen, onYank, act }: Preview
 
   return (
     <div className="dowse-scroll flex w-[420px] flex-none flex-col gap-3.5 overflow-y-auto" style={{ borderLeft: `1px solid ${C.border}`, padding: '14px 20px 18px' }}>
-      <div style={{ color: C.faint }}>── 1:preview ──────────────────────────</div>
+      <div aria-hidden style={{ color: C.faint }}>── 1:preview ──────────────────────────</div>
       {ctx && (
         <div className="text-xs">
           <div className="mb-0.5" style={{ color: C.dim }}>compiled query</div>
@@ -1088,7 +1147,7 @@ function Preview({ glow, ctx, view, rank, yanked, onOpen, onYank, act }: Preview
         </>
       ) : (
         <div className="flex flex-col gap-3.5" style={{ color: C.dim }}>
-          <div className="whitespace-pre" style={{ color: C.faint, lineHeight: 1.3 }}>{NO_SIGNAL}</div>
+          <div aria-hidden className="whitespace-pre" style={{ color: C.faint, lineHeight: 1.3 }}>{NO_SIGNAL}</div>
           <div>
             no target. run a search, e.g. <span style={{ color: C.green }}>find &lt;terms&gt;</span>; the selected result shows up here.
           </div>
