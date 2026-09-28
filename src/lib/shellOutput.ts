@@ -116,7 +116,7 @@ const SEARCH_HELP: [string, string, string][] = [
 ]
 
 const OTHER_HELP: [string, string][] = [
-  ['  any search', '--sort <key> --order asc|desc --limit 10|20|50|100'],
+  ['  any search', '--sort <key> --order asc|desc --limit 10|20|50|100 --page <n>'],
   ['  <qualifier>', 'any GitHub qualifier, e.g. license:mit'],
   ['next · prev · page <n>', 'paginate the last search'],
   ['sort <key> [asc|desc]', 're-sort the last search (tab lists keys)'],
@@ -164,7 +164,7 @@ export function helpLines(): { lines: Line[]; mobile: Line[] } {
     ...OTHER_HELP.filter(([u]) => !u.startsWith('  ')).map(([u, description]) =>
       line([seg(u, C.green), seg(description ? `\n  ${description}` : '', C.dim)]),
     ),
-    line([seg('any search: --sort --order --limit', C.cyan)]),
+    line([seg('any search: --sort --order --limit --page', C.cyan)]),
     line([]),
     line([seg('pick: ↑↓ move · OPEN · YANK · PREV/NEXT · QUIT', C.dim)]),
   ]

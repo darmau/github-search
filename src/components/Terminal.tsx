@@ -7,11 +7,13 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from 'react'
-import { effectiveToken, getRepository, GitHubApiError, searchGitHub, searchResource } from '../api/github'
+import { effectiveToken, getRepository, GitHubApiError, SEARCH_MAX_RESULTS, searchGitHub, searchResource } from '../api/github'
 import { getCachedSearch, searchCacheKey, setCachedSearch } from '../api/searchCache'
 import { setGitHubToken, useGitHubToken } from '../hooks/useGitHubToken'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useSearchQuota } from '../hooks/useSearchQuota'
+import { formatNumber } from '../lib/format'
+import { getTotalPages } from '../lib/pagination'
 import { parseRepositoryName } from '../lib/repositoryName'
 import { validateSearchQuery } from '../lib/searchQuery'
 import { SEARCH_TYPE_INFO } from '../lib/searchTypes'
@@ -22,6 +24,7 @@ import {
   commonPrefix,
   completionCandidates,
   completionSuffix,
+  DEFAULT_PAGE_SIZE,
   EXAMPLES,
   FLAGS,
   formatCountdown,
@@ -38,6 +41,7 @@ import {
   SORT_KEYS,
   sortLabel,
   suggestCommand,
+  toCommand,
   toSearchParams,
   tokenize,
   USAGE,
@@ -60,6 +64,7 @@ import {
   type SearchEntry,
 } from '../lib/shellOutput'
 import { describeResult, type AnySearchResponse, type ResultView } from '../lib/shellResults'
+import { commandFromUrl, loadCrt, loadHistory, saveCrt, saveHistory, urlWithCommand } from '../lib/shellSession'
 
 const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new'
 /** Lines of output typed out per millisecond, roughly */
@@ -67,25 +72,6 @@ const TYPE_MS_PER_LINE = 11
 const TYPE_OUT_MS = 3200
 const MAX_ENTRIES = 60
 const MAX_HISTORY = 50
-const CRT_STORAGE_KEY = 'dowse:crt'
-
-/** Scanlines and glow, on unless turned off with `crt off` */
-function loadCrt(): boolean {
-  try {
-    return localStorage.getItem(CRT_STORAGE_KEY) !== 'off'
-  } catch {
-    return true
-  }
-}
-
-function saveCrt(on: boolean) {
-  try {
-    if (on) localStorage.removeItem(CRT_STORAGE_KEY)
-    else localStorage.setItem(CRT_STORAGE_KEY, 'off')
-  } catch {
-    // Still applies for this visit
-  }
-}
 
 type PickAction = 'up' | 'down' | 'open' | 'yank' | 'next' | 'prev' | 'quit'
 /**
@@ -148,7 +134,7 @@ export function Terminal() {
     entries: [{ kind: 'motd', id: 0, at: Date.now() }],
     input: '',
     caret: 0,
-    history: [],
+    history: loadHistory(MAX_HISTORY),
     historyIndex: null,
     draft: '',
     pick: false,
@@ -201,6 +187,8 @@ export function Terminal() {
   useEffect(() => {
     if (desktop) inputRef.current?.focus({ preventScroll: true })
   }, [desktop])
+
+  useEffect(() => saveHistory(s.history), [s.history])
 
   // Keep the real input's caret where the drawn one is
   useLayoutEffect(() => {
@@ -293,7 +281,8 @@ export function Terminal() {
   }
 
   /** `pickKeys` carries pick mode's keys over, for commands pick mode itself runs */
-  function exec(raw: string, pickKeys: PickKeys = 'arrows') {
+  /** Returns whether the command started a search */
+  function exec(raw: string, pickKeys: PickKeys = 'arrows'): boolean {
     const at = Date.now()
     const text = raw.trim()
     const out: Entry[] = [{ kind: 'cmd', id: newId(), text: maskToken(raw), at }]
@@ -355,16 +344,22 @@ export function Terminal() {
           fail(`${command}: ${invalid}`)
           usage(USAGE[type])
         } else {
-          search({
-            type,
-            q: parsed.q,
-            sort: parsed.sort ?? 'best',
-            order: parsed.order ?? 'desc',
-            perPage: parsed.perPage ?? s.ctx?.perPage ?? 10,
-            page: 1,
-            repo: parsed.repo,
-            mode: parsed.mode,
-          })
+          const perPage = parsed.perPage ?? s.ctx?.perPage ?? DEFAULT_PAGE_SIZE
+          const lastPage = getTotalPages(SEARCH_MAX_RESULTS, perPage)
+          if ((parsed.page ?? 1) > lastPage) {
+            fail(`${command}: github serves only the first ${formatNumber(SEARCH_MAX_RESULTS)} results, so at most --page ${lastPage} with --limit ${perPage}`)
+          } else {
+            search({
+              type,
+              q: parsed.q,
+              sort: parsed.sort ?? 'best',
+              order: parsed.order ?? 'desc',
+              perPage,
+              page: parsed.page ?? 1,
+              repo: parsed.repo,
+              mode: parsed.mode,
+            })
+          }
         }
       } else {
         switch (command) {
@@ -515,7 +510,7 @@ export function Terminal() {
               print([
                 line([seg(SEARCH_TYPE_INFO[topic].label, C.white, { bold: true }), seg(` — ${COMMAND_FOR[topic]}`, C.dim)]),
                 line([seg('usage: ', C.dim), ...highlight(USAGE[topic])]),
-                line([seg('flags: ', C.dim), seg([...flags, '--sort', '--order', '--limit'].join(' '), C.cyan)]),
+                line([seg('flags: ', C.dim), seg([...flags, '--sort', '--order', '--limit', '--page'].join(' '), C.cyan)]),
                 line([seg('sort:  ', C.dim), seg(SORT_KEYS[topic].join(' · '), C.desc)]),
                 line([seg('e.g.   ', C.dim), ...highlight(SEARCH_TYPE_INFO[topic].placeholder.replace(/^.*e\.g\. /, `${COMMAND_FOR[topic]} ${topic === 'labels' ? 'vercel/next.js ' : ''}`))]),
               ])
@@ -546,7 +541,7 @@ export function Terminal() {
           }
           case 'clear':
             setS((prev) => ({ ...prev, ...patch, entries: [] }))
-            return
+            return false
           case 'exit':
             print([line([
               seg('logout: this shell is the product. try ', C.dim),
@@ -574,7 +569,41 @@ export function Terminal() {
     const launched = launch as SearchEntry | null
     if (launched?.status === 'loading') runSearch(launched.id, launched.ctx)
     else if (launched) setS((prev) => ({ ...prev, pick: true }))
+    return launched !== null
   }
+
+  // The search on screen goes in the URL, so it can be shared and bookmarked,
+  // and back and forward return to earlier ones. A search the URL started
+  // replaces its entry instead of adding another.
+  const urlMode = useRef<'push' | 'replace'>('push')
+  useEffect(() => {
+    if (!s.ctx) return
+    const command = toCommand(s.ctx)
+    const mode = urlMode.current
+    urlMode.current = 'push'
+    if (commandFromUrl(window.location.search) === command) return
+    const url = urlWithCommand(window.location, command)
+    if (mode === 'push') window.history.pushState(null, '', url)
+    else window.history.replaceState(null, '', url)
+  }, [s.ctx])
+
+  const runFromUrl = useEffectEvent((command: string | null) => {
+    if (!command) return
+    urlMode.current = 'replace'
+    if (!exec(command)) urlMode.current = 'push'
+  })
+  useEffect(() => {
+    const onPopState = () => runFromUrl(commandFromUrl(window.location.search))
+    // Read now: by the time the timer fires, a search typed meanwhile may have
+    // changed the URL. Deferred, so StrictMode's mount, unmount and mount runs it once.
+    const initial = commandFromUrl(window.location.search)
+    const timer = setTimeout(() => runFromUrl(initial))
+    window.addEventListener('popstate', onPopState)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('popstate', onPopState)
+    }
+  }, [])
 
   function run(command: string) {
     setInput('')

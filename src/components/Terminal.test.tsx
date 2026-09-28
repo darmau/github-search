@@ -220,6 +220,65 @@ describe('Terminal', () => {
     expect(document.querySelector('.dowse-crt')).not.toBeNull()
   })
 
+  it('puts the search on screen in the URL', async () => {
+    search.mockResolvedValue(response([repo], 25))
+    render(<Terminal />)
+
+    await type('find qdrant --lang rust')
+    expect(new URLSearchParams(window.location.search).get('cmd')).toBe('find qdrant language:rust')
+
+    await type('next')
+    expect(new URLSearchParams(window.location.search).get('cmd')).toBe('find qdrant language:rust --page 2')
+    // Not a search, so the URL stays
+    await type('help')
+    expect(new URLSearchParams(window.location.search).get('cmd')).toBe('find qdrant language:rust --page 2')
+  })
+
+  it('runs the search in a link it is opened with', async () => {
+    window.history.replaceState(null, '', '/?cmd=find+qdrant+--sort+stars+--page+2')
+    search.mockResolvedValue(response([repo], 25))
+    render(<Terminal />)
+    await act(() => vi.advanceTimersByTimeAsync(5_000))
+
+    expect(search).toHaveBeenCalledTimes(1)
+    expect(search).toHaveBeenCalledWith('repositories', expect.objectContaining({ q: 'qdrant', sort: 'stars', page: 2 }), expect.anything())
+    expect(text()).toContain('page 2/3')
+  })
+
+  it('goes back to the previous search', async () => {
+    search.mockResolvedValue(response([repo], 25))
+    render(<Terminal />)
+
+    await type('find qdrant')
+    await type('next')
+    window.history.back()
+    await act(() => vi.advanceTimersByTimeAsync(5_000))
+
+    expect(new URLSearchParams(window.location.search).get('cmd')).toBe('find qdrant')
+    // Page 1 is still cached
+    expect(search).toHaveBeenCalledTimes(2)
+    expect(text()).toMatch(/page 1\/3[^]*$/)
+  })
+
+  it('refuses a page past the first 1,000 results', async () => {
+    render(<Terminal />)
+
+    await type('find qdrant --limit 100 --page 11')
+
+    expect(text()).toContain('at most --page 10 with --limit 100')
+    expect(search).not.toHaveBeenCalled()
+  })
+
+  it('keeps history across reloads', async () => {
+    const { unmount } = render(<Terminal />)
+    await type('help find')
+    unmount()
+
+    render(<Terminal />)
+    fireEvent.keyDown(input(), { key: 'ArrowUp' })
+    expect(input()).toHaveProperty('value', 'help find')
+  })
+
   it('explains unknown commands and suggests a fix', async () => {
     render(<Terminal />)
 

@@ -12,6 +12,7 @@ import {
   parseSearch,
   searchTypeOf,
   suggestCommand,
+  toCommand,
   toSearchParams,
   tokenize,
   type SearchContext,
@@ -169,5 +170,57 @@ describe('helpers', () => {
     expect(formatSize(512)).toBe('512 KB')
     expect(formatSize(141 * 1024)).toBe('141 MB')
     expect(formatCountdown(42_100)).toBe('0:43')
+  })
+})
+
+describe('tokenize', () => {
+  it('keeps a quoted phrase with the word it belongs to', () => {
+    expect(tokenize('bug label:"good first issue" -l go')).toEqual(['bug', 'label:"good first issue"', '-l', 'go'])
+    expect(tokenize('users --location "new york"')).toEqual(['users', '--location', '"new york"'])
+  })
+})
+
+describe('--page', () => {
+  it('starts a search on a later page', () => {
+    expect(parseSearch('repositories', tokenize('react --page 3'), NOW)).toMatchObject({ q: 'react', page: 3 })
+  })
+
+  it('rejects anything but a page number', () => {
+    expect(parseSearch('repositories', tokenize('react --page 0'), NOW)).toEqual({ error: '--page expects a page number' })
+    expect(parseSearch('repositories', tokenize('react --page two'), NOW)).toEqual({ error: '--page expects a page number' })
+  })
+})
+
+describe('toCommand', () => {
+  /** Runs the command back through the parser, as a link would */
+  function reparse(search: SearchContext) {
+    const [command, ...args] = tokenize(toCommand(search))
+    const type = searchTypeOf(command)!
+    const parsed = parseSearch(type, args, NOW)
+    if ('error' in parsed) throw new Error(parsed.error)
+    return {
+      type,
+      q: parsed.q,
+      sort: parsed.sort ?? 'best',
+      order: parsed.order ?? 'desc',
+      perPage: parsed.perPage ?? 10,
+      page: parsed.page ?? 1,
+      repo: parsed.repo,
+      mode: parsed.mode,
+    }
+  }
+
+  it('leaves defaults out', () => {
+    expect(toCommand(ctx({ q: 'react language:typescript' }))).toBe('find react language:typescript')
+  })
+
+  it.each([
+    ctx({ q: 'vector database language:rust stars:>5000', sort: 'stars', order: 'asc', perPage: 50, page: 4 }),
+    ctx({ type: 'issues', q: 'leak repo:vercel/next.js label:"good first issue"', sort: 'created', mode: 'hybrid' }),
+    ctx({ type: 'labels', q: 'bug', repo: 'vercel/next.js', sort: 'updated', page: 2 }),
+    ctx({ type: 'users', q: 'tom location:"new york" followers:>100' }),
+    ctx({ type: 'code', q: 'useState -language:go path:src/' }),
+  ])('parses back into the same search: %o', (search) => {
+    expect(reparse(search)).toEqual(search)
   })
 })

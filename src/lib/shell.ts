@@ -198,7 +198,7 @@ export const FLAGS: { readonly [T in SearchType]: Readonly<Record<string, FlagDe
   }, { '-r': '--repo' }),
 }
 
-const COMMON_FLAGS = ['--sort', '--order', '--limit', '-n']
+const COMMON_FLAGS = ['--sort', '--order', '--limit', '-n', '--page']
 
 /** Qualifiers offered by tab completion */
 const QUALIFIERS: { readonly [T in SearchType]: readonly string[] } = {
@@ -228,8 +228,11 @@ export const EXAMPLES = [
   'labels vercel/next.js bug',
 ]
 
-/** Whitespace-separated words, keeping a quoted phrase in one piece */
-const TOKEN = /"[^"]*"?|\S+/g
+/**
+ * Whitespace-separated words, keeping a quoted phrase in one piece, also as
+ * part of a word: `label:"good first issue"` is one
+ */
+const TOKEN = /(?:[^\s"]+|"[^"]*"?)+/g
 
 export function tokenize(input: string): string[] {
   return input.match(TOKEN) ?? []
@@ -279,6 +282,24 @@ export function describeRequest(ctx: SearchContext): string {
   )
 }
 
+/** The page size a search uses unless given `--limit` */
+export const DEFAULT_PAGE_SIZE = 10
+
+/** A command that runs this search again, e.g. to put it in a link */
+export function toCommand(ctx: SearchContext): string {
+  const sorted = ctx.sort !== 'best'
+  return [
+    COMMAND_FOR[ctx.type],
+    ...(ctx.type === 'labels' && ctx.repo ? [ctx.repo] : []),
+    ctx.q,
+    ...(ctx.mode ? [`--${ctx.mode}`] : []),
+    ...(sorted ? ['--sort', ctx.sort] : []),
+    ...(sorted && ctx.order === 'asc' ? ['--order', 'asc'] : []),
+    ...(ctx.perPage !== DEFAULT_PAGE_SIZE ? ['--limit', String(ctx.perPage)] : []),
+    ...(ctx.page > 1 ? ['--page', String(ctx.page)] : []),
+  ].join(' ')
+}
+
 export function sortLabel(ctx: Pick<SearchContext, 'sort' | 'order'>): string {
   return ctx.sort === 'best' ? 'best match' : `${ctx.sort} ${ctx.order === 'desc' ? '↓' : '↑'}`
 }
@@ -289,7 +310,7 @@ export function isSortKey(type: SearchType, value: string | undefined): value is
 
 export type ParsedSearch =
   | { error: string }
-  | Pick<SearchContext, 'q' | 'repo' | 'mode'> & { sort?: string; order?: SearchOrder; perPage?: number }
+  | Pick<SearchContext, 'q' | 'repo' | 'mode'> & { sort?: string; order?: SearchOrder; perPage?: number; page?: number }
 
 /** Compiles a search command's arguments into a query with GitHub qualifiers */
 export function parseSearch(type: SearchType, args: string[], now: number): ParsedSearch {
@@ -299,6 +320,7 @@ export function parseSearch(type: SearchType, args: string[], now: number): Pars
   let sort: string | undefined
   let order: SearchOrder | undefined
   let perPage: number | undefined
+  let page: number | undefined
   let repo: string | undefined
   let mode: 'semantic' | 'hybrid' | undefined
 
@@ -328,6 +350,10 @@ export function parseSearch(type: SearchType, args: string[], now: number): Pars
       const n = Number(value)
       if (!(PAGE_SIZES as readonly number[]).includes(n)) return { error: `--limit expects ${PAGE_SIZES.join('|')}` }
       perPage = n
+    } else if (arg === '--page') {
+      const n = Number(value)
+      if (!Number.isInteger(n) || n < 1) return { error: '--page expects a page number' }
+      page = n
     } else {
       const compiled = def.compile(value, now)
       if ('qualifier' in compiled) qualifiers.push(compiled.qualifier)
@@ -343,7 +369,7 @@ export function parseSearch(type: SearchType, args: string[], now: number): Pars
     repo = `${name.owner}/${name.name}`
   }
   if (!terms.length && !qualifiers.length) return { error: 'missing query' }
-  return { q: [...terms, ...qualifiers].join(' '), sort, order, perPage, repo, mode }
+  return { q: [...terms, ...qualifiers].join(' '), sort, order, perPage, page, repo, mode }
 }
 
 /** Syntax highlighting for a command line */
@@ -396,6 +422,7 @@ export function completionCandidates(before: string, { ranks, sortType }: Comple
   } else if (type && prev === '--sort') candidates = SORT_KEYS[type]
   else if (type && prev === '--order') candidates = ['asc', 'desc']
   else if (type && (prev === '--limit' || prev === '-n')) candidates = PAGE_SIZES.map(String)
+  else if (type && prev === '--page') candidates = []
   else if (type && prev && FLAGS[type][prev]?.takesValue) candidates = FLAGS[type][prev].values ?? []
   else if (command === 'sort' && words.length === 2) candidates = sortType ? SORT_KEYS[sortType] : []
   else if (command === 'sort' && words.length === 3) candidates = ['asc', 'desc']
