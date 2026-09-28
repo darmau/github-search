@@ -40,8 +40,8 @@ export interface Refusal {
   more?: Line[]
 }
 
-export function refused(value: object): value is Refusal {
-  return 'error' in value
+export function refused<T>(value: T | Refusal): value is Refusal {
+  return typeof value === 'object' && value !== null && 'error' in value
 }
 
 export function usageLine(usage: string): Line {

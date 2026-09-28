@@ -289,6 +289,23 @@ export function capHint(prefix: string, ctx: SearchContext): Line {
   ])
 }
 
+/** Cuts styled text down to `width` characters, ending in … where it was cut */
+export function fitSegs(segs: Seg[], width: number): Seg[] {
+  if (segs.reduce((n, s) => n + s.t.length, 0) <= width) return segs
+  const out: Seg[] = []
+  let left = width
+  for (const s of segs) {
+    if (s.t.length < left) {
+      out.push(s)
+      left -= s.t.length
+    } else {
+      out.push({ ...s, t: `${s.t.slice(0, left - 1)}…` })
+      break
+    }
+  }
+  return out
+}
+
 /** Characters per line the mobile layout is laid out for */
 const MOBILE_COLUMNS = 42
 
@@ -455,10 +472,12 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
       ],
       options,
     )
-    push([seg(indent), ...r.meta], options)
+    // Wide screens have room to spare; narrow ones cut lines down to fit
+    const fit = (segs: Seg[]) => (desktop ? segs : fitSegs(segs, width))
+    push([seg(indent), ...fit(r.meta)], options)
     if (r.detail) push([seg(indent + truncate(r.detail, width), C.desc)], options)
-    if (on && !desktop && r.more.length) push([seg(indent), ...r.more], options)
-    if (r.tags.length && (desktop || on)) push([seg(indent), ...r.tags], options)
+    if (on && !desktop && r.more.length) push([seg(indent), ...fit(r.more)], options)
+    if (r.tags.length && (desktop || on)) push([seg(indent), ...fit(r.tags)], options)
     if (r.fragments.length && (desktop || on)) {
       for (const f of r.fragments) push([seg(`${indent}│ `, C.faint), ...f], options)
     }
