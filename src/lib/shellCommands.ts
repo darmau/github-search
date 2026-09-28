@@ -28,10 +28,8 @@ import {
   type Line,
   type SearchContext,
 } from './shell'
-import { capHint, pageOffset, TOKEN_HINT, totalPages, type SearchEntry } from './shellOutput'
+import { capHint, pageOffset, totalPages, type SearchEntry } from './shellOutput'
 import type { ResultView } from './shellResults'
-
-export const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new'
 
 /** A command that can't run: an error, and maybe more lines explaining it */
 export interface Refusal {
@@ -156,34 +154,16 @@ export function yankLines({ yank }: ResultView): Line[] {
     : [line([seg(`copied ${yank.label} `, C.dim), seg(yank.text, C.white)])]
 }
 
-/** `token`: whether the build has one, and how to give it one */
-export function tokenStatusLines(hasToken: boolean): Line[] {
-  if (hasToken)
-    return [line([seg('token ', C.dim), seg('from VITE_GITHUB_TOKEN', C.white), seg(' · 30 searches/min', C.dim)])]
-  return [
-    line([seg('no token · 10 searches/min · no code or semantic issue search', C.amber)]),
-    line([
-      seg('  create a fine-grained token with no extra permissions: ', C.dim),
-      seg(NEW_TOKEN_URL.replace('https://', ''), C.cyan, {
-        underline: true,
-        action: { type: 'openUrl', url: NEW_TOKEN_URL },
-      }),
-    ]),
-    line([seg('  then set ', C.dim), TOKEN_HINT, seg(' and rebuild', C.dim)]),
-  ]
-}
-
 export interface RateView {
   remaining: number
   limit: number
   /** Undefined until a request has reported it */
   quota: SearchQuota | undefined
   resource: RateLimitResource
-  hasToken: boolean
   now: number
 }
 
-export function rateLines({ remaining, limit, quota, resource, hasToken, now }: RateView): Line[] {
+export function rateLines({ remaining, limit, quota, resource, now }: RateView): Line[] {
   const filled = Math.round((remaining / limit) * 20)
   const reset = quota ? ` · resets in ${formatCountdown(quota.resetAt.getTime() - now)}` : ''
   return [
@@ -195,7 +175,7 @@ export function rateLines({ remaining, limit, quota, resource, hasToken, now }: 
     ]),
     line([
       seg('limit  ', C.dim),
-      seg(`${limit}/min · ${resource.replace('_', ' ')} · ${hasToken ? 'token' : 'anonymous'}`, C.desc),
+      seg(`${limit}/min · ${resource.replace('_', ' ')} · shared by everyone on this site`, C.desc),
     ]),
   ]
 }
@@ -211,12 +191,8 @@ export function historyLines(history: readonly string[]): Line[] {
   )
 }
 
-export function whoamiLines(hasToken: boolean, limit: number): Line[] {
-  return [
-    hasToken
-      ? line([seg('authenticated via token', C.desc), seg(` · ${limit} searches/min`, C.desc)])
-      : line([seg('guest', C.white), seg(` (anonymous) · ${limit} searches/min`, C.desc)]),
-  ]
+export function whoamiLines(limit: number): Line[] {
+  return [line([seg('guest', C.white), seg(` · searching with this site's token · ${limit} searches/min`, C.desc)])]
 }
 
 /** `help <search>`: one search command in detail */

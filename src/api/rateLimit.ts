@@ -10,7 +10,7 @@ export interface SearchQuota {
 
 export type RateLimitedError = GitHubApiError & { rateLimit: RateLimit }
 
-// All keyed by rate limit bucket (see `rateLimitBucket`)
+// All keyed by rate limit resource (see `searchResource`)
 const cooldowns = new Map<string, RateLimitedError>()
 const quotas = new Map<string, SearchQuota>()
 const quotaTimers = new Map<string, ReturnType<typeof setTimeout>>()

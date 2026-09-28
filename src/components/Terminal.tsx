@@ -9,7 +9,7 @@ import {
   type ChangeEvent,
   type KeyboardEvent,
 } from 'react'
-import { getRepository, GitHubApiError, HAS_TOKEN, searchGitHub, searchResource } from '../api/github'
+import { getRepository, GitHubApiError, searchGitHub, searchResource } from '../api/github'
 import { getCachedSearch, searchCacheKey, setCachedSearch } from '../api/searchCache'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { useSearchQuota } from '../hooks/useSearchQuota'
@@ -62,7 +62,6 @@ import {
   searchFromArgs,
   searchHelpLines,
   targetPage,
-  tokenStatusLines,
   usageLine,
   viewLines,
   whoamiLines,
@@ -139,7 +138,6 @@ function withEnter(level: PickKeys): PickKeys {
 
 /** dowse: a shell for GitHub search */
 export function Terminal() {
-  const hasToken = HAS_TOKEN
   const desktop = useMediaQuery('(min-width: 1200px)')
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)')
   const layout: Layout = desktop ? 'd' : 'm'
@@ -177,7 +175,7 @@ export function Terminal() {
   // Code and semantic issue search count against limits of their own
   const resource = s.ctx ? searchResource(s.ctx.type, toSearchParams(s.ctx)) : 'search'
   const quota = useSearchQuota(resource)
-  const limit = quota?.limit ?? (hasToken && resource === 'search' ? 30 : 10)
+  const limit = quota?.limit ?? (resource === 'search' ? 30 : 10)
   const remaining = live?.status === 'limited' ? 0 : (quota?.remaining ?? limit)
   const items = (live?.status === 'done' && live.data?.items) || []
   const selIndex = Math.min(s.sel, items.length - 1)
@@ -400,17 +398,14 @@ export function Terminal() {
           }
           break
         }
-        case 'token':
-          print(tokenStatusLines(hasToken))
-          break
         case 'rate':
-          print(rateLines({ remaining, limit, quota, resource, hasToken, now: at }))
+          print(rateLines({ remaining, limit, quota, resource, now: at }))
           break
         case 'history':
           print(historyLines(history))
           break
         case 'whoami':
-          print(whoamiLines(hasToken, limit))
+          print(whoamiLines(limit))
           break
         case 'help': {
           const topic = args[0] && searchTypeOf(args[0])
@@ -654,7 +649,6 @@ export function Terminal() {
     now,
     limit,
     remaining,
-    hasToken,
     today,
   }
   const lines: Line[] = []
@@ -841,7 +835,7 @@ export function Terminal() {
           ))}
         </div>
         <span className="flex-1 text-center" style={{ color: C.dim }}>
-          dowse — {hasToken ? 'token' : 'guest'}@tty0
+          dowse — guest@tty0
         </span>
         {quotaText}
       </div>
@@ -871,7 +865,6 @@ export function Terminal() {
             `${s.ctx.type} · ${sortLabel(s.ctx)} · ${live?.data ? `p${s.ctx.page}/${totalPages(live)} · ` : ''}`}
           quota {remaining}/{limit}
           {quota && quota.remaining < quota.limit && ` · reset ${formatCountdown(quota.resetAt.getTime() - now)}`}
-          {hasToken ? ' · token' : ' · anon'}
         </span>
         <span className="flex h-6 items-center px-2.5" style={{ background: '#2fcf76' }}>
           {new Date(now).toTimeString().slice(0, 5)}

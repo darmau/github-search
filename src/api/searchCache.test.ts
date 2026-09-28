@@ -23,19 +23,11 @@ describe('searchCacheKey', () => {
     expect(searchCacheKey('users', { q: 'react' })).not.toBe(key)
     expect(searchCacheKey('repositories', { q: 'vue' })).not.toBe(key)
     expect(searchCacheKey('repositories', { q: 'react', page: 2 })).not.toBe(key)
-    expect(searchCacheKey('repositories', { q: 'react' }, { token: 'a' })).not.toBe(key)
     expect(searchCacheKey('repositories', { q: 'react' }, { textMatch: true })).not.toBe(key)
   })
 
   it('treats textMatch false like the default', () => {
     expect(searchCacheKey('repositories', { q: 'react' }, { textMatch: false })).toBe(
-      searchCacheKey('repositories', { q: 'react' }),
-    )
-  })
-
-  it('keeps an explicit empty token apart from the default token', () => {
-    // '' means "no token", while undefined falls back to VITE_GITHUB_TOKEN
-    expect(searchCacheKey('repositories', { q: 'react' }, { token: '' })).not.toBe(
       searchCacheKey('repositories', { q: 'react' }),
     )
   })

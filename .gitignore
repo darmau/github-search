@@ -28,3 +28,4 @@ coverage
 
 # Wrangler state
 .wrangler
+.dev.vars*

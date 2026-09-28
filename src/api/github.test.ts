@@ -1,13 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import {
-  clearRepositoryCache,
-  getRepository,
-  GitHubApiError,
-  MissingTokenError,
-  rateLimitBucket,
-  searchGitHub,
-  searchResource,
-} from './github'
+import { clearRepositoryCache, getRepository, GitHubApiError, searchGitHub, searchResource } from './github'
 import { getQuota } from './rateLimit'
 
 const fetchMock = vi.fn<typeof fetch>()
@@ -34,7 +26,8 @@ const emptyResult = { total_count: 0, incomplete_results: false, items: [] }
 /** URL and headers of the n-th fetch call */
 function request(n = 0) {
   const [input, init] = fetchMock.mock.calls[n]
-  const url = new URL(input instanceof Request ? input.url : input)
+  // Relative to the page, like the browser resolves it
+  const url = new URL(input instanceof Request ? input.url : input, location.origin)
   return { url, headers: new Headers(init?.headers), init }
 }
 
@@ -58,7 +51,7 @@ describe('searchGitHub request', () => {
     await searchGitHub('repositories', { q: 'react', sort: undefined, order: '' as never })
 
     const { url } = request()
-    expect(url.origin + url.pathname).toBe('https://api.github.com/search/repositories')
+    expect(url.pathname).toBe('/api/search/repositories')
     expect([...url.searchParams]).toEqual([['q', 'react']])
   })
 
@@ -70,12 +63,9 @@ describe('searchGitHub request', () => {
     expect(url.searchParams.get('page')).toBe('2')
   })
 
-  it('sends a bearer token only when one is given', async () => {
-    await searchGitHub('repositories', { q: 'react' }, { token: 'secret' })
-    await searchGitHub('repositories', { q: 'react' }, { token: '' })
-
-    expect(request(0).headers.get('Authorization')).toBe('Bearer secret')
-    expect(request(1).headers.has('Authorization')).toBe(false)
+  it('leaves the token to the server', async () => {
+    await searchGitHub('code', { q: 'useState' })
+    expect(request().headers.has('Authorization')).toBe(false)
   })
 
   it('asks for text-match media type when textMatch is set', async () => {
@@ -191,17 +181,17 @@ describe('searchGitHub errors', () => {
     }
     fetchMock.mockResolvedValue(jsonResponse(body, { status: 422 }))
 
-    const error = await catchError(searchGitHub('code', { q: 'x'.repeat(300) }, { token: 'secret' }))
+    const error = await catchError(searchGitHub('code', { q: 'x'.repeat(300) }))
     expect(error.status).toBe(422)
     expect(error.body).toEqual(body)
     expect(error.message).toBe('The search query is too long')
   })
 
   it('falls back to body.message', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ message: 'Requires authentication' }, { status: 401 }))
+    fetchMock.mockResolvedValue(jsonResponse({ message: 'The server has no GitHub token' }, { status: 500 }))
 
     const error = await catchError(searchGitHub('issues', { q: 'foo' }))
-    expect(error.message).toBe('Requires authentication')
+    expect(error.message).toBe('The server has no GitHub token')
   })
 
   it('handles a non-JSON error body', async () => {
@@ -215,12 +205,12 @@ describe('searchGitHub errors', () => {
 })
 
 describe('searchGitHub with a rejected token', () => {
-  it('blames the token when one was sent', async () => {
+  it("blames the server's token", async () => {
     fetchMock.mockResolvedValue(jsonResponse({ message: 'Bad credentials' }, { status: 401 }))
 
-    const error = await catchError(searchGitHub('repositories', { q: 'react' }, { token: 'expired' }))
+    const error = await catchError(searchGitHub('repositories', { q: 'react' }))
     expect(error.status).toBe(401)
-    expect(error.message).toBe('GitHub rejected the token: it is invalid, expired or revoked')
+    expect(error.message).toBe("GitHub rejected the server's token: it is invalid, expired or revoked")
   })
 })
 
@@ -259,17 +249,16 @@ describe('searchGitHub rate limit tracking', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
-  it('keeps separate limits per token and per resource', async () => {
+  it('keeps separate limits per resource', async () => {
     fetchMock.mockResolvedValueOnce(rateLimitResponse())
-    await catchError(searchGitHub('repositories', { q: 'react' }, { token: 'ghp_mine' }))
+    await catchError(searchGitHub('repositories', { q: 'react' }))
 
     fetchMock.mockImplementation(async () => jsonResponse(emptyResult))
-    await searchGitHub('repositories', { q: 'react' }, { token: 'ghp_other' })
-    await searchGitHub('code', { q: 'react' }, { token: 'ghp_mine' })
-    await searchGitHub('issues', { q: 'react', search_type: 'semantic' }, { token: 'ghp_mine' })
-    await getRepository('facebook', 'react', { token: 'ghp_mine' })
-    await catchError(searchGitHub('issues', { q: 'react' }, { token: 'ghp_mine' }))
-    expect(fetchMock).toHaveBeenCalledTimes(5)
+    await searchGitHub('code', { q: 'react' })
+    await searchGitHub('issues', { q: 'react', search_type: 'semantic' })
+    await getRepository('facebook', 'react')
+    await catchError(searchGitHub('issues', { q: 'react' }))
+    expect(fetchMock).toHaveBeenCalledTimes(4)
   })
 
   it('waits a few seconds even when the reset time has already passed', async () => {
@@ -296,13 +285,12 @@ describe('searchGitHub rate limit tracking', () => {
     )
 
     await searchGitHub('repositories', { q: 'react' })
-    expect(getQuota(rateLimitBucket('search'))).toEqual({
+    expect(getQuota('search')).toEqual({
       limit: 10,
       remaining: 7,
       resetAt: new Date(reset * 1000),
     })
-    expect(getQuota(rateLimitBucket('search', 'ghp_other'))).toBeUndefined()
-    expect(getQuota(rateLimitBucket('code_search'))).toBeUndefined()
+    expect(getQuota('code_search')).toBeUndefined()
   })
 })
 
@@ -318,24 +306,6 @@ describe('searchResource', () => {
   })
 })
 
-describe('searchGitHub without a token', () => {
-  it.each([
-    ['code', { q: 'useState' }],
-    ['issues', { q: 'crash', search_type: 'semantic' }],
-    ['issues', { q: 'crash', search_type: 'hybrid' }],
-  ] as const)('rejects %s %j without a request', async (type, params) => {
-    await expect(searchGitHub(type, params, { token: '' })).rejects.toBeInstanceOf(MissingTokenError)
-    expect(fetchMock).not.toHaveBeenCalled()
-  })
-
-  it('sends the same searches with a token', async () => {
-    fetchMock.mockImplementation(async () => jsonResponse(emptyResult))
-    await searchGitHub('code', { q: 'useState' }, { token: 'secret' })
-    await searchGitHub('issues', { q: 'crash', search_type: 'semantic' }, { token: 'secret' })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-  })
-})
-
 describe('getRepository', () => {
   const repo = { id: 10270250, full_name: 'react/react' }
 
@@ -344,26 +314,20 @@ describe('getRepository', () => {
     fetchMock.mockImplementation(async () => jsonResponse(repo))
   })
 
-  it('fetches the repository with the token', async () => {
-    await expect(getRepository('facebook', 'react', { token: 'secret' })).resolves.toEqual(repo)
-
-    const { url, headers } = request()
-    expect(url.href).toBe('https://api.github.com/repos/facebook/react')
-    expect(headers.get('Authorization')).toBe('Bearer secret')
+  it('fetches the repository', async () => {
+    await expect(getRepository('facebook', 'react')).resolves.toEqual(repo)
+    expect(request().url.pathname).toBe('/api/repos/facebook/react')
   })
 
   it('escapes the path segments', async () => {
     await getRepository('a b', 'c?d')
-    expect(request().url.pathname).toBe('/repos/a%20b/c%3Fd')
+    expect(request().url.pathname).toBe('/api/repos/a%20b/c%3Fd')
   })
 
-  it('remembers a lookup per token, ignoring case', async () => {
+  it('remembers a lookup, ignoring case', async () => {
     await getRepository('facebook', 'react')
     await getRepository('Facebook', 'React')
     expect(fetchMock).toHaveBeenCalledTimes(1)
-
-    await getRepository('facebook', 'react', { token: 'secret' })
-    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('names the repository when it does not exist or is not visible', async () => {
@@ -390,7 +354,7 @@ describe('getRepository', () => {
       ),
     )
 
-    const error = await catchError(getRepository('facebook', 'react', { token: 'core-limited' }))
+    const error = await catchError(getRepository('facebook', 'react'))
     expect(error.rateLimit?.resource).toBe('core')
     expect(error.message).toMatch(/^API quota used up/)
     vi.useRealTimers()

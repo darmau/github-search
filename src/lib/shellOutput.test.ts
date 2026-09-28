@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { GitHubApiError, MissingTokenError } from '../api/github'
+import { GitHubApiError } from '../api/github'
 import { doneEntry, issue, NOW, repo, texts } from '../test/fixtures'
 import { line, seg } from './shell'
 import {
@@ -27,7 +27,6 @@ const view = (patch: Partial<SearchView> = {}): SearchView => ({
   now: NOW,
   limit: 10,
   remaining: 10,
-  hasToken: false,
   ...patch,
 })
 
@@ -40,7 +39,7 @@ describe('plainText', () => {
   })
 
   it('leaves the logo out of the greeting', () => {
-    const spoken = plainText(motdLines(false, '2026-09-28'))
+    const spoken = plainText(motdLines('2026-09-28'))
     expect(spoken).not.toContain('|____/')
     expect(spoken.split('\n')[0]).toBe('dowse — github search shell · guest@tty0 · 2026-09-28')
   })
@@ -56,8 +55,8 @@ describe('announcement', () => {
   })
 
   it('reports failures', () => {
-    const error = new MissingTokenError('code')
-    expect(announcement({ ...loading, status: 'error', error })).toBe('search failed: Code search needs a GitHub token')
+    const error = new GitHubApiError(500, { message: 'The server has no GitHub token' }, null)
+    expect(announcement({ ...loading, status: 'error', error })).toBe('search failed: The server has no GitHub token')
   })
 
   it('has nothing to say about commands and the greeting', () => {
@@ -120,9 +119,9 @@ describe('searchLines', () => {
     )
   })
 
-  it('warns when the quota runs low, and offers a token', () => {
+  it('warns when the quota runs low', () => {
     const lines = texts(searchLines(doneEntry([repo]), view({ remaining: 1 })))
-    expect(lines).toContainEqual('[warn] 1 of 10 searches left this minute · set VITE_GITHUB_TOKEN for more')
+    expect(lines).toContainEqual('[warn] 1 of 10 searches left this minute')
   })
 
   it('counts down to a retry when rate limited', () => {

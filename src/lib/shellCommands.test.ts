@@ -13,7 +13,6 @@ import {
   searchFromArgs,
   searchHelpLines,
   targetPage,
-  tokenStatusLines,
   yankLines,
 } from './shellCommands'
 import { describeResult } from './shellResults'
@@ -126,16 +125,6 @@ describe('output', () => {
     expect(texts(yankLines({ ...view, yank: { text: 'u', label: 'URL' } }))).toEqual(['copied URL u'])
   })
 
-  it('explains how to get a token when there is none', () => {
-    const lines = tokenStatusLines(false)
-    expect(lines[1].segs[1].action).toEqual({
-      type: 'openUrl',
-      url: 'https://github.com/settings/personal-access-tokens/new',
-    })
-    expect(texts(lines)[2]).toBe('  then set VITE_GITHUB_TOKEN and rebuild')
-    expect(texts(tokenStatusLines(true))[0]).toBe('token from VITE_GITHUB_TOKEN · 30 searches/min')
-  })
-
   it('draws the quota as a bar', () => {
     const resetAt = new Date(NOW + 30_000)
     const lines = texts(
@@ -144,13 +133,12 @@ describe('output', () => {
         limit: 10,
         quota: { limit: 10, remaining: 5, resetAt },
         resource: 'search',
-        hasToken: false,
         now: NOW,
       }),
     )
     expect(lines).toEqual([
       `quota  ${'█'.repeat(10)}${'░'.repeat(10)}  5/10 left · resets in 0:30`,
-      'limit  10/min · search · anonymous',
+      'limit  10/min · search · shared by everyone on this site',
     ])
   })
 

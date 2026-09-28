@@ -84,7 +84,6 @@ export const COMMANDS = [
   'view',
   'open',
   'yank',
-  'token',
   'rate',
   'history',
   'clear',

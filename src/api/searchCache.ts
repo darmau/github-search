@@ -2,8 +2,8 @@ import type { SearchEndpoints, SearchType } from '../types/github'
 import type { SearchOptions } from './github'
 
 /**
- * Search results change slowly, and unauthenticated search allows only
- * 10 req/min, so reusing a result for a few minutes is well worth it.
+ * Search results change slowly, and everyone using the site shares 30
+ * searches a minute, so reusing a result for a few minutes is well worth it.
  */
 export const SEARCH_CACHE_TTL_MS = 5 * 60_000
 export const SEARCH_CACHE_MAX_ENTRIES = 100
@@ -24,16 +24,15 @@ const entries = new Map<string, Entry>()
 export function searchCacheKey<T extends SearchType>(
   type: T,
   params: SearchEndpoints[T]['params'],
-  { token, textMatch }: Omit<SearchOptions, 'signal'> = {},
+  { textMatch }: Omit<SearchOptions, 'signal'> = {},
 ): string {
   const compactParams = Object.fromEntries(
     Object.entries(params)
       .filter(([, value]) => value !== undefined && value !== '')
       .sort(([a], [b]) => (a < b ? -1 : 1)),
   )
-  // The token is part of the key: authenticated results can include private repos.
   // Undefined fields drop out of the JSON, so `{}` and `{ textMatch: false }` match.
-  return JSON.stringify([type, compactParams, { token, textMatch: textMatch || undefined }])
+  return JSON.stringify([type, compactParams, { textMatch: textMatch || undefined }])
 }
 
 function isFresh(entry: Entry): boolean {

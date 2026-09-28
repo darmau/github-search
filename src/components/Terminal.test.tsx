@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getRepository, GitHubApiError, MissingTokenError, searchGitHub } from '../api/github'
+import { getRepository, GitHubApiError, searchGitHub } from '../api/github'
 import type {
   IssueSearchResultItem,
   LabelSearchResultItem,
@@ -412,15 +412,16 @@ describe('Terminal', () => {
     expect(text()).toContain("Something isn't working")
   })
 
-  it('asks for a token for code search', async () => {
-    search.mockRejectedValue(new MissingTokenError('code'))
+  it('reports a rejected server token on code search', async () => {
+    search.mockRejectedValue(
+      new GitHubApiError(401, null, null, "GitHub rejected the server's token: it is invalid, expired or revoked"),
+    )
     render(<Terminal />)
 
     await type('code useState --lang typescript')
 
     expect(search).toHaveBeenCalledWith('code', expect.anything(), expect.objectContaining({ textMatch: true }))
-    expect(text()).toContain('Code search needs a GitHub token')
-    expect(text()).toContain('set VITE_GITHUB_TOKEN to use this search')
+    expect(text()).toContain("[fail] 401 GitHub rejected the server's token")
   })
 
   it('only offers the sorts a search type supports', async () => {

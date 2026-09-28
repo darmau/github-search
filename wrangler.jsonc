@@ -2,9 +2,18 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "github-search",
   "compatibility_date": "2026-09-28",
-  // A static site: no Worker script, just the built files
+  // Forwards /api to GitHub with the token; the built site is served as static files
+  "main": "worker/index.ts",
   "assets": {
     "directory": "./dist",
     "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"],
+  },
+  // Set with `wrangler secret put GITHUB_TOKEN`, or in .env.local for local dev
+  "secrets": {
+    "required": ["GITHUB_TOKEN"],
+  },
+  "observability": {
+    "enabled": true,
   },
 }

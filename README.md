@@ -25,12 +25,8 @@ It runs entirely in the browser and talks only to `api.github.com`.
 
 On narrow screens a row of keys replaces the ones a phone keyboard lacks.
 
-### Token
-
-Without a token GitHub allows 10 searches a minute and no code or semantic issue search. Create a
-[fine-grained token](https://github.com/settings/personal-access-tokens/new) with no extra permissions and
-set it as `VITE_GITHUB_TOKEN` (e.g. in `.env.local`) to raise the limit to 30 a minute; see
-[Building with a token](#building-with-a-token). `token` shows whether one is in use.
+Searches go through this site's GitHub token, so everyone shares its limits: 30 searches a minute, and 10
+for code and semantic issue search.
 
 ## Development
 
@@ -49,16 +45,29 @@ The code is React and TypeScript, built with Vite and styled with Tailwind:
 - `src/api` calls the GitHub API and tracks rate limits and cached results.
 - `src/lib/shell*.ts` parse commands and turn results into terminal output. They have no React in them.
 - `src/components/Terminal.tsx` is the shell itself.
+- `worker/index.ts` is the Cloudflare Worker that forwards `/api` to GitHub with the token.
 
 Two TypeScript packages are installed on purpose. `@typescript/native` is TypeScript 7 and provides the
 `tsc` that type checks and builds. `typescript` is an alias for TypeScript 6, whose JavaScript API
 typescript-eslint still needs.
 
-### Building with a token
+### Token and deployment
 
-A token in `VITE_GITHUB_TOKEN` is bundled into the page, where anyone who loads it can read it. The build
-fails if a token would end up in the output. Set `ALLOW_BUNDLED_TOKEN=1` only for a private deployment.
+The page never sees a GitHub token. It calls `/api/…` on its own origin, and a Cloudflare Worker
+(`worker/index.ts`) forwards those calls to `api.github.com` with the token added. That also gets around
+GitHub leaving CORS headers off successful code search responses, which a browser can't read directly.
 
-The production build also writes a Content Security Policy that only lets the page connect to
-`api.github.com`. It goes in `dist/_headers`, which Cloudflare sends as a response header; on another host,
-send the same header yourself.
+Create a [fine-grained token](https://github.com/settings/personal-access-tokens/new) with no extra
+permissions, then:
+
+- Local dev: put `GITHUB_TOKEN=…` in `.env.local`. `pnpm dev` proxies `/api` with it, and `wrangler dev`
+  reads it too.
+- Cloudflare: `pnpm exec wrangler secret put GITHUB_TOKEN`, or add it as a secret in the dashboard. Then
+  `pnpm deploy`.
+
+Don't name it `VITE_GITHUB_TOKEN`: Vite would put it in the page. The build fails if a token would end up
+in the output. After changing `wrangler.jsonc`, run `pnpm cf-typegen` to regenerate the Worker's types.
+
+The production build also adds a Content Security Policy that only lets the page connect to its own origin.
+It is set in a `<meta>` tag; send it as a response header too if your host allows, since a `<meta>` policy
+can't set `frame-ancestors`.

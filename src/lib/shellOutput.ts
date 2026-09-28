@@ -1,4 +1,4 @@
-import { GitHubApiError, MissingTokenError, SEARCH_MAX_RESULTS } from '../api/github'
+import { GitHubApiError, SEARCH_MAX_RESULTS } from '../api/github'
 import type { RepositorySearchResultItem } from '../types/github'
 import { formatNumber } from './format'
 import { getTotalPages } from './pagination'
@@ -120,20 +120,13 @@ const LOGO = [
   '|____/  \\___/    \\_/\\_/   |____/ |_____|',
 ]
 
-export const TOKEN_HINT = seg('VITE_GITHUB_TOKEN', C.green)
-
-export function motdLines(hasToken: boolean, date: string): Line[] {
+export function motdLines(date: string): Line[] {
   return [
     ...LOGO.map((l) => line([seg(l, C.green, { bold: true })], { decorative: true })),
     line([]),
-    line([
-      seg('dowse', C.white, { bold: true }),
-      seg(` — github search shell · ${hasToken ? 'token' : 'guest'}@tty0 · ${date}`, C.dim),
-    ]),
+    line([seg('dowse', C.white, { bold: true }), seg(` — github search shell · guest@tty0 · ${date}`, C.dim)]),
     line([seg('designed and developed by ', C.faint), seg('Liao', C.desc)]),
-    hasToken
-      ? line([seg('[ ok ] ', C.green), seg('token in use · 30 searches/min · code search on', C.desc)])
-      : line([seg('[warn] ', C.amber), seg('no token · 10 searches/min · no code search · set ', C.desc), TOKEN_HINT]),
+    line([seg('[info] ', C.cyan), seg('30 searches/min, shared by everyone on this site', C.desc)]),
     line([
       seg('[info] ', C.cyan),
       seg(`each query returns at most ${formatNumber(SEARCH_MAX_RESULTS)} results`, C.desc),
@@ -177,7 +170,7 @@ export function errorLine(message: string): Line {
 /** [usage, description, flags] */
 const SEARCH_HELP: [string, string, string][] = [
   ['find <terms> [flags]', 'repositories (f, repos)', '--lang --stars --pushed --topic --user --no-archived'],
-  ['code <terms> [flags]', 'code · needs a token', '--lang --repo --path --ext --user'],
+  ['code <terms> [flags]', 'code', '--lang --repo --path --ext --user'],
   [
     'issues <terms> [flags]',
     'issues and pull requests',
@@ -196,7 +189,6 @@ const OTHER_HELP: [string, string][] = [
   ['sort <key> [asc|desc]', 're-sort the last search (tab lists keys)'],
   ['ls', 'reprint last results (no quota)'],
   ['view · open · yank [#]', 'preview · open on GitHub · copy'],
-  ['token', 'whether a token raises the limit to 30/min'],
   ['crt [on | off]', 'scanlines and glow'],
   ['rate · history · whoami · clear', ''],
 ]
@@ -318,7 +310,6 @@ export interface SearchView {
   now: number
   limit: number
   remaining: number
-  hasToken: boolean
 }
 
 export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
@@ -360,7 +351,6 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
         seg(formatCountdown(entry.resetAt - now), C.white, { bold: true }),
         seg(` ${spinner(now)}`, C.amber),
       ])
-      if (!view.hasToken) push([seg('       hint: ', C.dim), TOKEN_HINT, seg(' raises the limit', C.dim)])
     }
     push([])
     return lines
@@ -370,11 +360,6 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
     const error = entry.error
     const status = error instanceof GitHubApiError ? `${error.status} ` : ''
     push([seg(`[fail] ${status}`, C.red, { bold: true }), seg(error?.message ?? 'search failed', C.red)])
-    if (error instanceof MissingTokenError) {
-      push([seg('       set ', C.dim), TOKEN_HINT, seg(' to use this search', C.dim)])
-    } else if (error instanceof GitHubApiError && error.status === 401) {
-      push([seg('       check ', C.dim), TOKEN_HINT])
-    }
     push([])
     return lines
   }
@@ -505,11 +490,7 @@ export function searchLines(entry: SearchEntry, view: SearchView): Line[] {
 
   if (live) {
     if (view.remaining <= Math.max(2, view.limit * 0.2)) {
-      push([
-        seg('[warn] ', C.amber),
-        seg(`${view.remaining} of ${view.limit} searches left this minute`, C.amber),
-        ...(view.hasToken ? [] : [seg(' · set ', C.dim), TOKEN_HINT, seg(' for more', C.dim)]),
-      ])
+      push([seg('[warn] ', C.amber), seg(`${view.remaining} of ${view.limit} searches left this minute`, C.amber)])
     }
     const link = (t: string) => seg(t, C.green, { underline: true, action: { type: 'run', command: t } })
     const sorts = SORT_SUGGESTIONS[ctx.type]
@@ -562,7 +543,7 @@ export function entryLines(entry: Entry, view: ScrollbackView, cache: LineCache)
 /** What the entry's lines depend on, or null when they change too often to keep */
 function cacheKey(entry: Entry, view: ScrollbackView): string | null {
   const { layout } = view
-  if (entry.kind === 'motd') return `${layout}|${view.hasToken}|${view.today}`
+  if (entry.kind === 'motd') return `${layout}|${view.today}`
   if (entry.kind !== 'search') return layout
   // A spinner or a countdown, redrawn on every tick
   if (entry.status === 'loading' || entry.status === 'limited') return null
@@ -571,7 +552,7 @@ function cacheKey(entry: Entry, view: ScrollbackView): string | null {
   const minute = Math.floor(view.now / 60_000)
   if (entry.id !== view.liveId) return `${layout}|${minute}`
   // The live search also shows the selection, what was copied and the quota
-  return [layout, minute, 'live', view.sel, view.yanked, view.remaining, view.limit, view.hasToken].join('|')
+  return [layout, minute, 'live', view.sel, view.yanked, view.remaining, view.limit].join('|')
 }
 
 function drawEntry(entry: Entry, view: ScrollbackView): Line[] {
@@ -579,7 +560,7 @@ function drawEntry(entry: Entry, view: ScrollbackView): Line[] {
     case 'cmd':
       return [commandLine(entry.text, view.layout, entry.suffix)]
     case 'motd':
-      return motdLines(view.hasToken, view.today)
+      return motdLines(view.today)
     case 'lines':
       return view.layout === 'm' && entry.mobile ? entry.mobile : entry.lines
     case 'search':

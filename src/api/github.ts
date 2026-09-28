@@ -8,16 +8,12 @@ import type {
 } from '../types/github'
 import { getCooldown, recordQuota, startCooldown, type RateLimitedError, type SearchQuota } from './rateLimit'
 
-const API_BASE = 'https://api.github.com'
-const API_VERSION = '2026-03-10'
-
 /**
- * Optional personal access token. Required for code search and semantic/hybrid
- * issue search, and raises the search rate limit from 10 to 30 req/min.
- * Anything prefixed VITE_ is bundled into the client, so never ship a real
- * token in a public build.
+ * The GitHub REST API, through this site's own Worker (worker/index.ts), which
+ * adds the token. The dev server proxies it the same way (vite.config.ts).
  */
-const DEFAULT_TOKEN = import.meta.env.VITE_GITHUB_TOKEN
+const API_BASE = '/api'
+const API_VERSION = '2026-03-10'
 
 /** The Search API only serves the first 1000 results of any query */
 export const SEARCH_MAX_RESULTS = 1000
@@ -32,9 +28,9 @@ export type RateLimitType = 'primary' | 'secondary'
 
 /**
  * The separately counted limits a request can draw from, as GitHub names them
- * in `x-ratelimit-resource`. Search allows 10 req/min without a token and 30
- * with one; code and semantic issue search allow 10 and need a token; `core`
- * covers the rest of the REST API (60 an hour without a token).
+ * in `x-ratelimit-resource`. With the server's token, search allows 30 req/min,
+ * code and semantic issue search 10, and `core`, the rest of the REST API,
+ * 5000 an hour. Everyone using the site shares them.
  */
 export type RateLimitResource = 'search' | 'code_search' | 'semantic_search' | 'core'
 
@@ -126,88 +122,51 @@ export function searchResource<T extends SearchType>(
   return 'search'
 }
 
-/**
- * Identifies a rate limit: GitHub counts each token (or, without one, each IP)
- * separately, and each resource separately. Defaults to the build-time token,
- * just like `searchGitHub`.
- */
-export function rateLimitBucket(resource: RateLimitResource, token: string | undefined = DEFAULT_TOKEN): string {
-  return JSON.stringify([token || null, resource])
-}
-
-/** Whether requests are sent with the token from VITE_GITHUB_TOKEN */
-export const HAS_TOKEN = Boolean(DEFAULT_TOKEN)
-
-/** Code search and semantic/hybrid issue search reject anonymous requests */
-export function searchRequiresToken<T extends SearchType>(type: T, params: SearchEndpoints[T]['params']): boolean {
-  return searchResource(type, params) !== 'search'
-}
-
-/**
- * A search GitHub would reject for lack of a token. Caught before the request:
- * GitHub would still charge it to the core rate limit.
- */
-export class MissingTokenError extends Error {
-  readonly type: SearchType
-
-  constructor(type: SearchType) {
-    super(type === 'code' ? 'Code search needs a GitHub token' : 'Semantic and hybrid issue search need a GitHub token')
-    this.name = 'MissingTokenError'
-    this.type = type
-  }
-}
-
-const BAD_TOKEN_MESSAGE = 'GitHub rejected the token: it is invalid, expired or revoked'
+const BAD_TOKEN_MESSAGE = "GitHub rejected the server's token: it is invalid, expired or revoked"
 
 export interface SearchOptions {
   signal?: AbortSignal
-  token?: string
   /** Request highlighted fragments in `text_matches` */
   textMatch?: boolean
 }
 
 interface RequestOptions {
   signal?: AbortSignal
-  token: string | undefined
   accept?: string
   resource: RateLimitResource
 }
 
 /** GETs an API path, tracking the rate limit of the resource it draws from */
-async function request<TData>(path: string, { signal, token, accept, resource }: RequestOptions): Promise<TData> {
+async function request<TData>(path: string, { signal, accept, resource }: RequestOptions): Promise<TData> {
   // Fail fast while rate limited, without spending a request
-  const bucket = rateLimitBucket(resource, token)
-  const cooldown = getCooldown(bucket)
+  const cooldown = getCooldown(resource)
   if (cooldown) throw cooldown
 
   const headers: HeadersInit = {
     Accept: accept ?? 'application/vnd.github+json',
     'X-GitHub-Api-Version': API_VERSION,
   }
-  if (token) headers.Authorization = `Bearer ${token}`
 
   const res = await fetch(`${API_BASE}${path}`, { headers, signal })
 
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as GitHubErrorBody | null
     // GitHub just says "Bad credentials", which doesn't point at the token
-    const message = res.status === 401 && token ? BAD_TOKEN_MESSAGE : undefined
+    const message = res.status === 401 ? BAD_TOKEN_MESSAGE : undefined
     const error = new GitHubApiError(res.status, body, parseRateLimit(res, body, resource), message)
-    if (error.rateLimit) startCooldown(bucket, error as RateLimitedError)
+    if (error.rateLimit) startCooldown(resource, error as RateLimitedError)
     throw error
   }
 
-  recordQuota(bucket, parseQuota(res))
+  recordQuota(resource, parseQuota(res))
   return res.json() as Promise<TData>
 }
 
 export async function searchGitHub<T extends SearchType>(
   type: T,
   params: SearchEndpoints[T]['params'],
-  { signal, token = DEFAULT_TOKEN, textMatch = false }: SearchOptions = {},
+  { signal, textMatch = false }: SearchOptions = {},
 ): Promise<SearchEndpoints[T]['response']> {
-  if (!token && searchRequiresToken(type, params)) throw new MissingTokenError(type)
-
   const query = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== '') query.set(key, String(value))
@@ -215,14 +174,12 @@ export async function searchGitHub<T extends SearchType>(
 
   return request(`/search/${type}?${query}`, {
     signal,
-    token,
     accept: textMatch ? 'application/vnd.github.text-match+json' : undefined,
     resource: searchResource(type, params),
   })
 }
 
 // Repository ids never change, so a lookup is kept for the page's lifetime.
-// Keyed by token too: a private repository is only visible with the right one.
 const repositories = new Map<string, Repository>()
 
 /**
@@ -233,16 +190,15 @@ const repositories = new Map<string, Repository>()
 export async function getRepository(
   owner: string,
   name: string,
-  { signal, token = DEFAULT_TOKEN }: Omit<SearchOptions, 'textMatch'> = {},
+  { signal }: Omit<SearchOptions, 'textMatch'> = {},
 ): Promise<Repository> {
-  const key = JSON.stringify([token || null, `${owner}/${name}`.toLowerCase()])
+  const key = `${owner}/${name}`.toLowerCase()
   const cached = repositories.get(key)
   if (cached) return cached
 
   try {
     const repo = await request<Repository>(`/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}`, {
       signal,
-      token,
       resource: 'core',
     })
     repositories.set(key, repo)
