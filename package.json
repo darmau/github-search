@@ -1,5 +1,5 @@
 {
-  "name": "github-search",
+  "name": "dowse",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,11 +8,13 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b",
     "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "check": "pnpm lint && pnpm test:run && pnpm build"
+    "check": "pnpm lint && pnpm format:check && pnpm test:run && pnpm build"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.3.3",
@@ -35,6 +37,7 @@
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.12.0",
     "jsdom": "^30.1.1",
+    "prettier": "^3.9.9",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.70.1",
     "vite": "^8.3.0",
