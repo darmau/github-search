@@ -19,7 +19,7 @@ export function noBundledToken(): Plugin {
     apply: 'build',
     enforce: 'post',
     configResolved(config) {
-      envToken = config.env.VITE_GITHUB_TOKEN || undefined
+      envToken = (config.env.VITE_GITHUB_TOKEN as string | undefined) || undefined
     },
     generateBundle(_options, bundle) {
       if (process.env[ALLOW_ENV]) return

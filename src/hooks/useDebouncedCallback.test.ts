@@ -15,12 +15,20 @@ it('calls once with the last arguments after calls stop for the delay', () => {
   const { result } = renderHook(() => useDebouncedCallback(fn, 300))
 
   result.current.run('a')
-  act(() => vi.advanceTimersByTime(200))
+  act(() => {
+    vi.advanceTimersByTime(200)
+  })
   result.current.run('ab')
-  act(() => vi.advanceTimersByTime(299))
+  act(() => {
+    vi.advanceTimersByTime(299)
+  })
   expect(fn).not.toHaveBeenCalled()
 
-  act(() => vi.advanceTimersByTime(1))
+  act(() => {
+
+    vi.advanceTimersByTime(1)
+
+  })
   expect(fn).toHaveBeenCalledTimes(1)
   expect(fn).toHaveBeenCalledWith('ab')
 })
@@ -31,7 +39,9 @@ it('drops the pending call on cancel', () => {
 
   result.current.run('a')
   result.current.cancel()
-  act(() => vi.advanceTimersByTime(300))
+  act(() => {
+    vi.advanceTimersByTime(300)
+  })
   expect(fn).not.toHaveBeenCalled()
 })
 
@@ -41,7 +51,9 @@ it('drops the pending call on unmount', () => {
 
   result.current.run('a')
   unmount()
-  act(() => vi.advanceTimersByTime(300))
+  act(() => {
+    vi.advanceTimersByTime(300)
+  })
   expect(fn).not.toHaveBeenCalled()
 })
 
@@ -55,7 +67,9 @@ it('runs the latest callback and stays stable across renders', () => {
 
   result.current.run('a')
   rerender({ fn: second })
-  act(() => vi.advanceTimersByTime(300))
+  act(() => {
+    vi.advanceTimersByTime(300)
+  })
 
   expect(result.current).toBe(initial)
   expect(first).not.toHaveBeenCalled()
@@ -71,7 +85,11 @@ it('makes the pending call straight away on flush, and only once', () => {
   expect(fn).toHaveBeenCalledTimes(1)
   expect(fn).toHaveBeenCalledWith('a')
 
-  act(() => vi.advanceTimersByTime(300))
+  act(() => {
+
+    vi.advanceTimersByTime(300)
+
+  })
   result.current.flush()
   expect(fn).toHaveBeenCalledTimes(1)
 })

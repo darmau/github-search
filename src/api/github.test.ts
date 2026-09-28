@@ -26,7 +26,8 @@ const emptyResult = { total_count: 0, incomplete_results: false, items: [] }
 /** URL and headers of the n-th fetch call */
 function request(n = 0) {
   const [input, init] = fetchMock.mock.calls[n]
-  return { url: new URL(String(input)), headers: new Headers(init?.headers), init }
+  const url = new URL(input instanceof Request ? input.url : input)
+  return { url, headers: new Headers(init?.headers), init }
 }
 
 async function catchError(promise: Promise<unknown>): Promise<GitHubApiError> {

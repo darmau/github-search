@@ -94,7 +94,7 @@ describe('request lifecycle', () => {
     expect(vi.mocked(searchGitHub)).toHaveBeenCalledWith(
       'repositories',
       { q: 'react', sort: 'stars' },
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) as unknown }),
     )
 
     const data = response('react')
@@ -213,10 +213,18 @@ describe('rate limit', () => {
     await settle(searches[0], { error: rateLimited() })
     expect(result.current.status).toBe('error')
 
-    act(() => vi.advanceTimersByTime(29_000))
+    act(() => {
+
+      vi.advanceTimersByTime(29_000)
+
+    })
     expect(searches).toHaveLength(1)
 
-    act(() => vi.advanceTimersByTime(2_000))
+    act(() => {
+
+      vi.advanceTimersByTime(2_000)
+
+    })
     expect(result.current.status).toBe('loading')
     expect(searches).toHaveLength(2)
     expect(searches[1].params).toEqual({ q: 'react' })
@@ -227,12 +235,20 @@ describe('rate limit', () => {
     const { rerender } = renderSearch({ params: { q: 'react' } })
     await settle(searches[0], { error })
 
-    act(() => vi.advanceTimersByTime(10_000))
+    act(() => {
+
+      vi.advanceTimersByTime(10_000)
+
+    })
     rerender({ params: { q: 'vue' } })
     // searchGitHub fails fast with the same error while the limit lasts
     await settle(searches[1], { error })
 
-    act(() => vi.advanceTimersByTime(21_000))
+    act(() => {
+
+      vi.advanceTimersByTime(21_000)
+
+    })
     expect(searches).toHaveLength(3)
     expect(searches[2].params).toEqual({ q: 'vue' })
   })
@@ -242,7 +258,9 @@ describe('rate limit', () => {
     await settle(searches[0], { error: rateLimited() })
 
     rerender({ params: null })
-    act(() => vi.advanceTimersByTime(60_000))
+    act(() => {
+      vi.advanceTimersByTime(60_000)
+    })
     expect(searches).toHaveLength(1)
   })
 })
