@@ -3,9 +3,7 @@ import {
   SEARCH_CACHE_MAX_ENTRIES,
   SEARCH_CACHE_TTL_MS,
   clearSearchCache,
-  deleteCachedSearch,
   getCachedSearch,
-  peekCachedSearch,
   searchCacheKey,
   setCachedSearch,
 } from './searchCache'
@@ -96,47 +94,12 @@ describe('cache entries', () => {
     expect(getCachedSearch('new')).toBe('x')
   })
 
-  describe('peek', () => {
-    it('returns a fresh entry, and undefined on a miss or once expired', () => {
-      setCachedSearch('a', 1)
-
-      expect(peekCachedSearch('a')).toBe(1)
-      expect(peekCachedSearch('b')).toBeUndefined()
-
-      vi.advanceTimersByTime(SEARCH_CACHE_TTL_MS)
-      expect(peekCachedSearch('a')).toBeUndefined()
-    })
-
-    it('does not count as a use for eviction', () => {
-      for (let i = 0; i < SEARCH_CACHE_MAX_ENTRIES; i++) setCachedSearch(`k${i}`, i)
-
-      // Unlike getCachedSearch, peeking leaves k0 the least recently used
-      peekCachedSearch('k0')
-      setCachedSearch('new', 'x')
-
-      expect(peekCachedSearch('k0')).toBeUndefined()
-      expect(peekCachedSearch('k1')).toBe(1)
-    })
-
-    it('agrees with getCachedSearch on an expired entry', () => {
-      setCachedSearch('a', 1)
-      vi.advanceTimersByTime(SEARCH_CACHE_TTL_MS)
-
-      expect(peekCachedSearch('a')).toBeUndefined()
-      expect(getCachedSearch('a')).toBeUndefined()
-      expect(peekCachedSearch('a')).toBeUndefined()
-    })
-  })
-
-  it('deletes one entry or all of them', () => {
+  it('clears all entries', () => {
     setCachedSearch('a', 1)
     setCachedSearch('b', 2)
 
-    deleteCachedSearch('a')
-    expect(getCachedSearch('a')).toBeUndefined()
-    expect(getCachedSearch('b')).toBe(2)
-
     clearSearchCache()
+    expect(getCachedSearch('a')).toBeUndefined()
     expect(getCachedSearch('b')).toBeUndefined()
   })
 })

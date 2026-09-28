@@ -41,17 +41,8 @@ function isFresh(entry: Entry): boolean {
 }
 
 /**
- * Reads an entry without changing the cache: it doesn't count as a use and
- * doesn't drop an expired entry. Pure, so it's safe to call while rendering.
- */
-export function peekCachedSearch<TData>(key: string): TData | undefined {
-  const entry = entries.get(key)
-  return entry && isFresh(entry) ? (entry.data as TData) : undefined
-}
-
-/**
  * Reads an entry and marks it as recently used, dropping it if it has
- * expired. Mutates the cache, so call it from effects, not while rendering.
+ * expired.
  */
 export function getCachedSearch<TData>(key: string): TData | undefined {
   const entry = entries.get(key)
@@ -71,10 +62,6 @@ export function setCachedSearch(key: string, data: unknown): void {
   while (entries.size > SEARCH_CACHE_MAX_ENTRIES) {
     entries.delete(entries.keys().next().value!)
   }
-}
-
-export function deleteCachedSearch(key: string): void {
-  entries.delete(key)
 }
 
 export function clearSearchCache(): void {

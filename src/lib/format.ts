@@ -12,13 +12,3 @@ export function formatNumber(n: number): string {
   const numberFormat = new Intl.NumberFormat("en");
   return numberFormat.format(n)
 }
-
-/** ISO timestamp → "Sep 27, 2026" */
-export function formatDate(iso: string): string {
-  const dateFormat = new Intl.DateTimeFormat("en", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-  return dateFormat.format(new Date(iso))
-}

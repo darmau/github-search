@@ -12,7 +12,7 @@ const POLICY = {
   'img-src': ["'self'", 'https://avatars.githubusercontent.com'],
   'connect-src': ['https://api.github.com'],
   'base-uri': ["'none'"],
-  // The search form is handled in JS and never actually submits
+  // The page has no forms; the shell reads commands in JS
   'form-action': ["'none'"],
 }
 
