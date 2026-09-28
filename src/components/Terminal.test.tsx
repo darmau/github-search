@@ -159,6 +159,51 @@ describe('Terminal', () => {
     expect(text()).toContain('page: expected 1–3')
   })
 
+  it('leaves letter keys to the prompt until pick mode is entered with esc', async () => {
+    search.mockResolvedValue(response([repo], 25))
+    render(<Terminal />)
+
+    await type('find qdrant')
+    // Starting to type `next` must not page
+    fireEvent.keyDown(input(), { key: 'n' })
+    await act(() => vi.advanceTimersByTimeAsync(5_000))
+    expect(search).toHaveBeenCalledTimes(1)
+
+    fireEvent.keyDown(input(), { key: 'Escape' })
+    fireEvent.keyDown(input(), { key: 'n' })
+    await act(() => vi.advanceTimersByTimeAsync(5_000))
+    expect(search).toHaveBeenLastCalledWith('repositories', expect.objectContaining({ page: 2 }), expect.anything())
+  })
+
+  it('opens a result on enter only once one is chosen', async () => {
+    const open = vi.spyOn(window, 'open').mockImplementation(() => null)
+    search.mockResolvedValue(response([repo, { ...repo, id: 2, html_url: 'https://github.com/qdrant/other' }]))
+    render(<Terminal />)
+
+    await type('find qdrant')
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(open).not.toHaveBeenCalled()
+
+    // A bare enter leaves pick mode, like a blank line in a shell
+    fireEvent.keyDown(input(), { key: 'Escape' })
+    fireEvent.keyDown(input(), { key: 'ArrowDown' })
+    fireEvent.keyDown(input(), { key: 'Enter' })
+    expect(open).toHaveBeenCalledWith('https://github.com/qdrant/other', '_blank', 'noopener')
+    open.mockRestore()
+  })
+
+  it('says there are no results after the screen is cleared', async () => {
+    search.mockResolvedValue(response([repo], 25))
+    render(<Terminal />)
+
+    await type('find qdrant')
+    await type('clear')
+    await type('next')
+
+    expect(text()).toContain('no results on screen — run a search first')
+    expect(text()).not.toContain('wait for the current search')
+  })
+
   it('explains unknown commands and suggests a fix', async () => {
     render(<Terminal />)
 

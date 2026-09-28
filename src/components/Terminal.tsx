@@ -69,6 +69,13 @@ const MAX_ENTRIES = 60
 const MAX_HISTORY = 50
 
 type PickAction = 'up' | 'down' | 'open' | 'yank' | 'next' | 'prev' | 'quit'
+/**
+ * Which keys pick mode takes from the prompt. It comes up by itself when
+ * results land, so at first it only takes the arrows and esc, and letters
+ * still reach the prompt. Moving or clicking a result lets ↵ open it, and esc
+ * hands over the letter keys too.
+ */
+type PickKeys = 'arrows' | 'enter' | 'all'
 type Key = 'enter' | 'tab' | 'up' | 'down' | 'esc' | 'ctrlc' | 'ctrll' | `ins:${string}` | `pick:${PickAction}`
 
 interface ShellState {
@@ -82,6 +89,7 @@ interface ShellState {
   draft: string
   /** fzf-style navigation of the live results */
   pick: boolean
+  pickKeys: PickKeys
   sel: number
   /** The search the prompt acts on */
   liveId: number | null
@@ -94,6 +102,18 @@ interface ShellState {
 const PICK_KEYS: Record<string, PickAction> = {
   j: 'down', ArrowDown: 'down', k: 'up', ArrowUp: 'up', Enter: 'open', o: 'open',
   y: 'yank', n: 'next', p: 'prev', q: 'quit', Escape: 'quit',
+}
+
+/** Whether pick mode at this level takes the key, rather than the prompt */
+function pickTakes(level: PickKeys, key: string): boolean {
+  if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'Escape') return true
+  if (key === 'Enter') return level !== 'arrows'
+  return level === 'all'
+}
+
+/** Choosing a result lets ↵ open it, without taking back the letter keys */
+function withEnter(level: PickKeys): PickKeys {
+  return level === 'all' ? 'all' : 'enter'
 }
 
 /** dowse: a shell for GitHub search */
@@ -113,6 +133,7 @@ export function Terminal() {
     historyIndex: null,
     draft: '',
     pick: false,
+    pickKeys: 'arrows',
     sel: 0,
     liveId: null,
     ctx: null,
@@ -251,13 +272,14 @@ export function Terminal() {
     setNow(at)
   }
 
-  function exec(raw: string) {
+  /** `pickKeys` carries pick mode's keys over, for commands pick mode itself runs */
+  function exec(raw: string, pickKeys: PickKeys = 'arrows') {
     const at = Date.now()
     const text = raw.trim()
     const out: Entry[] = [{ kind: 'cmd', id: newId(), text: maskToken(raw), at }]
     const masked = maskToken(text)
     const history = text && s.history.at(-1) !== masked ? [...s.history, masked].slice(-MAX_HISTORY) : s.history
-    const patch: Partial<ShellState> = { history, historyIndex: null, pick: false }
+    const patch: Partial<ShellState> = { history, historyIndex: null, pick: false, pickKeys }
     let launch: SearchEntry | null = null
 
     const print = (lines: Line[], mobile?: Line[]) => out.push({ kind: 'lines', id: newId(), lines, mobile, at })
@@ -275,7 +297,15 @@ export function Terminal() {
     // The results on screen, for commands that act on them
     const onScreen = (): SearchEntry | null => {
       if (live?.status === 'done' && live.data) return live
-      fail(s.ctx ? 'wait for the current search to finish' : 'no results on screen — run a search first')
+      fail(
+        live?.status === 'loading'
+          ? 'wait for the current search to finish'
+          : live?.status === 'limited'
+            ? 'rate limited — the search runs again once the limit resets'
+            : live?.status === 'error'
+              ? 'the last search failed — run a search first'
+              : 'no results on screen — run a search first',
+      )
       return null
     }
     const pickItem = (arg: string | undefined) => {
@@ -365,6 +395,7 @@ export function Terminal() {
             const { view, index } = picked
             patch.sel = index
             patch.pick = true
+            patch.pickKeys = withEnter(pickKeys)
             const name = view.prefix + view.title.trim()
             if (command === 'view') {
               print([line([seg('→ ', C.green), seg('previewing ', C.desc), seg(name, C.green, { bold: true })])])
@@ -551,10 +582,10 @@ export function Terminal() {
 
   function pickAct(action: PickAction) {
     if (!items.length) return setS((prev) => ({ ...prev, pick: false }))
-    if (action === 'down') setS((prev) => ({ ...prev, sel: Math.min(items.length - 1, prev.sel + 1) }))
-    else if (action === 'up') setS((prev) => ({ ...prev, sel: Math.max(0, prev.sel - 1) }))
-    else if (action === 'open' || action === 'yank') exec(`${action} ${selectedRank}`)
-    else if (action === 'next' || action === 'prev') exec(action)
+    if (action === 'down') setS((prev) => ({ ...prev, sel: Math.min(items.length - 1, prev.sel + 1), pickKeys: withEnter(prev.pickKeys) }))
+    else if (action === 'up') setS((prev) => ({ ...prev, sel: Math.max(0, prev.sel - 1), pickKeys: withEnter(prev.pickKeys) }))
+    else if (action === 'open' || action === 'yank') exec(`${action} ${selectedRank}`, s.pickKeys)
+    else if (action === 'next' || action === 'prev') exec(action, s.pickKeys)
     else setS((prev) => ({ ...prev, pick: false }))
   }
 
@@ -565,7 +596,8 @@ export function Terminal() {
     else if (key === 'down') browseHistory(1)
     else if (key === 'esc') {
       if (s.input) setInput('')
-      else if (items.length) setS((prev) => ({ ...prev, pick: !prev.pick }))
+      // Entered on purpose, so pick mode takes the letter keys too
+      else if (items.length) setS((prev) => ({ ...prev, pick: !prev.pick, pickKeys: 'all' }))
     } else if (key === 'ctrlc') {
       append([{ kind: 'cmd', id: newId(), text: maskToken(s.input), suffix: '^C', at: Date.now() }], { pick: false })
       setInput('')
@@ -600,8 +632,10 @@ export function Terminal() {
         return setInput('')
       }
     }
-    if (pickOn && s.input === '' && PICK_KEYS[key]) {
+    if (pickOn && s.input === '' && PICK_KEYS[key] && pickTakes(s.pickKeys, key)) {
       e.preventDefault()
+      // Before it has the letter keys, esc hands them over rather than quitting
+      if (key === 'Escape' && s.pickKeys !== 'all') return setS((prev) => ({ ...prev, pickKeys: 'all' }))
       return pickAct(PICK_KEYS[key])
     }
     const mapped: Record<string, Key> = { Enter: 'enter', Tab: 'tab', ArrowUp: 'up', ArrowDown: 'down', Escape: 'esc' }
@@ -624,7 +658,7 @@ export function Terminal() {
     if (action.type === 'run') run(action.command)
     else if (action.type === 'fill') fill(action.text)
     else if (action.type === 'openUrl') window.open(action.url, '_blank', 'noopener')
-    else setS((prev) => ({ ...prev, sel: action.index, pick: true }))
+    else setS((prev) => ({ ...prev, sel: action.index, pick: true, pickKeys: withEnter(prev.pickKeys) }))
   }
 
   function focusInput() {
@@ -663,9 +697,17 @@ export function Terminal() {
     ? layout === 'd'
       ? [
           seg(' PICK ', C.bg, { bg: C.green, bold: true }), seg(`  ${selIndex + 1}/${items.length}   `, C.green),
-          seg('j/k', C.white), seg(' move   ', C.dim), seg('↵', C.white), seg(' open   ', C.dim), seg('y', C.white),
-          seg(` yank ${selected?.yank.label ?? ''}   `, C.dim),
-          seg('n/p', C.white), seg(' page   ', C.dim), seg('q', C.white), seg(' quit · or just start typing', C.dim),
+          ...(s.pickKeys === 'all'
+            ? [
+                seg('j/k', C.white), seg(' move   ', C.dim), seg('↵', C.white), seg(' open   ', C.dim), seg('y', C.white),
+                seg(` yank ${selected?.yank.label ?? ''}   `, C.dim),
+                seg('n/p', C.white), seg(' page   ', C.dim), seg('q', C.white), seg(' quit', C.dim),
+              ]
+            : [
+                seg('↑↓', C.white), seg(' move   ', C.dim),
+                ...(s.pickKeys === 'enter' ? [seg('↵', C.white), seg(' open   ', C.dim)] : []),
+                seg('esc', C.white), seg(' more keys · or just start typing', C.dim),
+              ]),
         ]
       : [seg(' PICK ', C.bg, { bg: C.green, bold: true }), seg(`  ${selIndex + 1}/${items.length}  `, C.green), seg('keys below · tap a row', C.dim)]
     : null
